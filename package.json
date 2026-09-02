@@ -1,0 +1,26 @@
+{
+  "name": "sinan",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "scripts": {
+    "db:migrate": "npm run db:migrate -w sinan-server --",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "qianwj",
+  "license": "ISC",
+  "type": "commonjs",
+  "workspaces": [
+    "packages/sinan-core",
+    "apps/sinan-server"
+  ]
+}

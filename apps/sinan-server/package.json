@@ -1,0 +1,26 @@
+{
+  "name": "sinan-server",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx --env-file=.local.env src/main.ts"
+  },
+  "keywords": [],
+  "author": "qianwj",
+  "license": "ISC",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.84.4",
+    "@earendil-works/pi-ai": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

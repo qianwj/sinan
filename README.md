@@ -19,3 +19,9 @@ Sinan 是面向一人公司的 AI 团队协作与产品构建系统。它采用�
 - **记忆**：以 SQLite/FTS5 + 必需的 `sqlite-vec` 为基础，本地 embedding 模型按需启用；
 - **治理与恢复**：记录需求、决策、事件、尝试和副作用，支持审议、升级、重试与故障恢复；
 - **注意力路由**：向人展示待决策事项和 agent 工位状态。
+
+## 开发示例
+
+`sinan-core` 提供可复用的 `Optional<T>`，server 的 `Database` 封装提供
+参数绑定的 `run`、返回 `Optional` 的 `get` 和数组形式的 `all`。完整示例见
+[`docs/core-usage.md`](docs/core-usage.md)。

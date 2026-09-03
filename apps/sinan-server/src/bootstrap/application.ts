@@ -1,10 +1,13 @@
 import readline from "node:readline";
+import { Database, Migrator } from "../persistence/database.js";
 
 export class Application {
   private running = true;
   private rl?: readline.Interface;
+  private readonly database: Database;
 
   constructor() {
+    this.database = new Database();
   }
 
   public async run(): Promise<void> {
@@ -24,12 +27,12 @@ export class Application {
 
   private async onStart(): Promise<void> {
     console.log('application starting...');
-    // const result = this.database.migrate();
-    // if (result.applied.length > 0) {
-    //   console.log(`database migrated: ${result.previousVersion} -> ${result.currentVersion}`);
-    // } else {
-    //   console.log(`database already at version ${result.currentVersion}`);
-    // }
+    const result = new Migrator(this.database).migrate();
+    if (result.applied.length > 0) {
+      console.log(`database migrated: ${result.previousVersion} -> ${result.currentVersion}`);
+    } else {
+      console.log(`database already at version ${result.currentVersion}`);
+    }
   }
 
   private async onStop(): Promise<void> {
@@ -37,6 +40,7 @@ export class Application {
     if (this.rl) {
       this.rl.close();
     }
+    this.database.close();
   }
 
   private setupSignalListeners(): void {

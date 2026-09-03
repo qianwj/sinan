@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json", // 继承根目录
+  "compilerOptions": {
+    "rootDir": "./src",            // 源码根目录，保持 dist 输出布局稳定
+    "outDir": "./dist"             // 独立输出到自己的 dist
+  },
+  "include": ["src/**/*"],         // 只管自己的代码
+  "exclude": ["src/**/*.test.ts"]
+}

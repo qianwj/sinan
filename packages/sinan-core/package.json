@@ -1,0 +1,22 @@
+{
+  "name": "sinan-core",
+  "version": "0.0.1",
+  "description": "",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "devDependencies": {},
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test src/optional.test.ts"
+  },
+  "keywords": [],
+  "author": "qianwj",
+  "license": "ISC",
+  "type": "module"
+}

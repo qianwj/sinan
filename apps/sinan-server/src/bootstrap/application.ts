@@ -1,13 +1,16 @@
 import readline from "node:readline";
+import { ActorManager } from "../actors/manager.js";
 import { Database, Migrator } from "../persistence/database.js";
 
 export class Application {
   private running = true;
   private rl?: readline.Interface;
   private readonly database: Database;
+  private readonly actorManager: ActorManager;
 
   constructor() {
     this.database = new Database();
+    this.actorManager = new ActorManager(this.database);
   }
 
   public async run(): Promise<void> {
@@ -40,7 +43,11 @@ export class Application {
     if (this.rl) {
       this.rl.close();
     }
-    this.database.close();
+    try {
+      this.actorManager.dispose();
+    } finally {
+      this.database.close();
+    }
   }
 
   private setupSignalListeners(): void {

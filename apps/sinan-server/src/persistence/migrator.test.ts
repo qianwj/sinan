@@ -59,6 +59,64 @@ test("rolls back a failed migration without recording it", () => {
   }
 });
 
+test("adds actor_config.created_at and backfills legacy records", () => {
+  const directory = createMigrations({
+    "001_actor_persistence.sql": `
+      CREATE TABLE actor_config (
+        id TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        state_kind TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_actor_config_state ON actor_config(state_kind);
+      INSERT INTO actor_config (id, config_json, state_kind, updated_at)
+      VALUES ('actor-1', '{}', 'ready', 1234);
+    `,
+    "002_actor_config_created_at.sql": `
+      CREATE TABLE actor_config_with_created_at (
+        id TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        state_kind TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO actor_config_with_created_at
+        (id, config_json, state_kind, created_at, updated_at)
+      SELECT id, config_json, state_kind, updated_at, updated_at
+      FROM actor_config;
+      DROP TABLE actor_config;
+      ALTER TABLE actor_config_with_created_at RENAME TO actor_config;
+      CREATE INDEX idx_actor_config_state ON actor_config(state_kind);
+    `,
+  });
+
+  try {
+    using database = new Database(":memory:");
+    const result = new Migrator(database, directory).migrate();
+    assert.deepEqual(result.applied, [1, 2]);
+    const columns = database.all<{ name: string; notnull: number }>("PRAGMA table_info(actor_config)");
+    assert.deepEqual(
+      columns.map(({ name, notnull }) => ({ name, notnull })),
+      [
+        { name: "id", notnull: 0 },
+        { name: "config_json", notnull: 1 },
+        { name: "state_kind", notnull: 1 },
+        { name: "created_at", notnull: 1 },
+        { name: "updated_at", notnull: 1 },
+      ],
+    );
+    assert.deepEqual(
+      database.get<{ created_at: number }>(
+        "SELECT created_at FROM actor_config WHERE id = ?",
+        "actor-1",
+      ).orElseThrow(),
+      { created_at: 1234 },
+    );
+  } finally {
+    removeDirectory(directory);
+  }
+});
+
 test("Database.transaction commits or rolls back through the Database facade", () => {
   using database = new Database(":memory:");
   database.exec("CREATE TABLE values_table (value INTEGER NOT NULL)");

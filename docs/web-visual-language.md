@@ -3,7 +3,7 @@
 > **文档性质**：[`web-agent-office.md`](web-agent-office.md) §6 的具体化设计代币（颜色 / 排版 / 图标 / 动效 / 间距）。实现阶段以此为对照表。
 > **基线**：[`web-agent-office.md`](web-agent-office.md) v0.2（§5 工位视图、§6 状态视觉语言、§7 决策收件箱、§11 可访问性）、[`architecture.md`](architecture.md) §10（安全、隐私与性能）。
 > **不覆盖**：具体前端框架、组件库、CSS-in-JS 方案、构建工具、设计工具（Figma 等）的工程导出。
-> **版本**：v0.1 ｜ **状态**：评审中 ｜ **更新**：2026-09-04
+> **版本**：v0.3 ｜ **状态**：视觉决策全部确认；设计基线锁定；可进入技术栈选型 ｜ **更新**：2026-09-04
 
 ## 1. 文档规则
 
@@ -320,18 +320,20 @@ typography-family-mono:
 
 | 属性 | 值 | 备注 |
 |---|---|---|
-| 库 | **Phosphor（Regular）或 Lucide** | 两者均为 1.5-2px 描边，圆角端点，简洁；任选其一即可，不混用 |
+| 库 | **Phosphor Regular**（评审决定，2026-09-04） | 1.5-2px 描边，圆角端点；状态图标覆盖完整 |
 | 笔触 | 1.5px（16px 尺寸）、2px（24px+） | 一致性 |
 | 端点 | `round` | 与 slate 中性色协调 |
-| 风格 | `regular`（默认）/ `fill`（选中态） | 不引入第三种风格 |
+| 风格 | `regular`（默认）/ `fill`（选中态） | 不引入第三种风格（`bold` / `duotone` / `light` 一律不用） |
 | 尺寸 | 16 / 20 / 24 / 32 px | 仅这四个尺寸 |
 | 色彩 | `currentColor` | 由父元素颜色驱动 |
+| 加载方式 | 静态 SVG 资源（每图标独立文件），首期随 web 包一起 ship | 不引入运行时 CDN；符合 local-first 与 NFR-03 |
 
 **约束**：
 
 - 不使用拟人化图标（人脸、表情、emoji 角色）；
 - 不使用 emoji 作为状态图标（emoji 颜色不受主题控制，违反 §4.6 主题策略）；
-- 状态图标必须独立成库，不依赖品牌色板。
+- 状态图标必须独立成库，不依赖品牌色板；
+- 不混用第二图标库；保持单一来源。
 
 ### 6.2 Actor 状态图标
 
@@ -554,4 +556,9 @@ typography-family-mono:
 
 ## 12. 变更记录
 
+- 2026-09-04 v0.3 评审收敛（设计基线锁定）：
+  - 确认 `failed` 使用 **amber + 2px 边框**，**不**用红色（红色仅留给 `quarantined` 与"未确认外部副作用"）；
+  - 确认 5 个角色 hue = **blue / violet / cyan / lime / orange**（避开红绿轴）；
+  - 确认动画策略 = **用户偏好 `preferences.animations` 与 `prefers-reduced-motion` 取严格者**。
+- 2026-09-04 v0.2 锁定图标库为 **Phosphor Regular**（评审答复，2026-09-04）；明确静态 SVG 加载方式，删除 Lucide 选项。
 - 2026-09-04 v0.1 初稿。锚定 `web-agent-office.md` v0.2。占位调色板选 slate 中性 + 标准 hue（评审答复，2026-09-04）。

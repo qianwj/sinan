@@ -21,6 +21,7 @@
   "type": "commonjs",
   "workspaces": [
     "packages/sinan-core",
-    "apps/sinan-server"
+    "apps/sinan-server",
+    "apps/sinan-web"
   ]
 }

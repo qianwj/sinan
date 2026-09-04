@@ -5,14 +5,14 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx --env-file=.env.local src/main.ts",
-    "test": "node --import tsx --test src/persistence/*.test.ts"
+    "test": "node --import tsx --test src/persistence/*.test.ts src/actors/*.test.ts"
   },
   "keywords": [],
   "author": "qianwj",
   "license": "ISC",
   "type": "module",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.19.0"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.84.4",

@@ -4,21 +4,24 @@
     import { lookupTask } from "$lib/fixtures.js";
 
     /**
-     * One workstation = one actor. Card layout per
-     * `web-agent-office.md` §5.1:
-     *   - identity strip (left border) → role color (`§5.3`)
-     *   - state badge + (for `running`) task title + (for
-     *     `paused` / `failed` / `quarantined`) the human reason
-     *   - last event timestamp (relative)
+     * One workstation = one actor (web-agent-office.md §5.1).
      *
-     * The card does not log raw agent output (`§3.2`).
+     * Layout (top → bottom):
+     *   - top stripe in the status color (4px) — identity color
+     *     shows on the left; status color shows on top, so a single
+     *     glance tells you "who they are" and "what they are doing"
+     *   - identity block: large initials, name, role label
+     *   - state badge + detail line
+     *   - task line when running (taskId + requirement + title)
+     *   - meta grid: id, workspace, policy, last event
      */
     let { view }: { view: ActorView } = $props();
 
     const initials = $derived(initialsFor(view.config.name));
     const roleLabel = $derived(roleLabelFor(view.config.role));
-    const identityClass = $derived(identityClassFor(view.config.role));
+    const roleClass = $derived(roleClassFor(view.config.role));
     const statusClass = $derived(statusClassFor(view.state));
+    const statusTint = $derived(statusTintFor(view.state));
     const detail = $derived(detailFor(view));
     const task = $derived(taskFor(view.state));
     const relativeLastEvent = $derived(
@@ -48,47 +51,63 @@
         }
     }
 
-    function identityClassFor(role: ActorRole): string {
+    function roleClassFor(role: ActorRole): string {
         switch (role) {
             case "product_manager":
-                return "border-l-role-pm";
+                return "bg-role-pm";
             case "designer":
-                return "border-l-role-designer";
+                return "bg-role-designer";
             case "development_engineer":
-                return "border-l-role-developer";
+                return "bg-role-developer";
             case "qa_engineer":
-                return "border-l-role-qa";
+                return "bg-role-qa";
             case "devops_engineer":
-                return "border-l-role-devops";
+                return "bg-role-devops";
         }
     }
 
-    /**
-     * Status class raises the border contrast for states that demand
-     * attention (`§5.3` "需介入显著标识"). The non-attention states
-     * share the default border so the room reads calm.
-     */
     function statusClassFor(state: ActorState): string {
         switch (state.kind) {
-            case "failed":
-            case "quarantined":
-                return "border-status-failed";
+            case "ready":
+                return "bg-status-ready";
+            case "running":
+                return "bg-status-running";
             case "paused":
+                return "bg-status-paused";
             case "failed":
-                return "border-status-paused";
+                return "bg-status-failed";
+            case "restarting":
+                return "bg-status-restarting";
+            case "quarantined":
+                return "bg-status-quarantined";
             case "terminated":
-                return "border-divider opacity-60";
-            default:
-                return "border-divider";
+            case "created":
+            case "initializing":
+                return "bg-status-terminated";
         }
     }
 
-    /**
-     * The "detail" line is the short explanation under the state
-     * badge: task title for `running`, the reason for `paused` /
-     * `failed` / `quarantined`, the checkpoint note for
-     * `restarting`, and a quiet "idle" for `ready` / `created`.
-     */
+    function statusTintFor(state: ActorState): string {
+        switch (state.kind) {
+            case "ready":
+                return "bg-status-ready-tint";
+            case "running":
+                return "bg-status-running-tint";
+            case "paused":
+                return "bg-status-paused-tint";
+            case "failed":
+                return "bg-status-failed-tint";
+            case "restarting":
+                return "bg-status-restarting-tint";
+            case "quarantined":
+                return "bg-status-quarantined-tint";
+            case "terminated":
+            case "created":
+            case "initializing":
+                return "bg-status-terminated-tint";
+        }
+    }
+
     function detailFor(view: ActorView): string {
         const state = view.state;
         switch (state.kind) {
@@ -115,13 +134,13 @@
         }
     }
 
-    /** Optional task id + requirement when the actor is running. */
-    function taskFor(state: ActorState): { id: string; requirement: string | null } | null {
+    function taskFor(state: ActorState): { id: string; requirement: string | null; title: string } | null {
         if (state.kind !== "running") return null;
         const summary = lookupTask(state.taskId);
         return {
             id: state.taskId,
             requirement: summary?.requirement ?? null,
+            title: summary?.title ?? `task ${state.taskId}`,
         };
     }
 
@@ -140,43 +159,52 @@
 </script>
 
 <article
-    class="flex flex-col gap-3 rounded-lg border border-l-4 {identityClass} {statusClass} bg-surface-1 p-4 shadow-sm transition hover:shadow-md focus-within:ring-2 focus-within:ring-status-running"
+    class="group relative flex flex-col overflow-hidden rounded-xl border border-divider bg-surface-1 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_1px_3px_rgba(15,23,42,0.06)] transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,23,42,0.08),0_2px_4px_rgba(15,23,42,0.06)] focus-within:ring-2 focus-within:ring-status-running focus-within:ring-offset-2"
+    data-state={view.state.kind}
 >
-    <header class="flex items-start gap-3">
+    <div class="h-1 w-full {statusClass}" aria-hidden="true"></div>
+
+    <div class="flex items-start gap-3 px-5 pt-4">
         <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas-deep text-sm font-semibold text-palette-slate-50"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold text-palette-slate-50 {roleClass}"
             aria-hidden="true"
         >
             {initials}
         </div>
         <div class="min-w-0 flex-1">
-            <p class="truncate text-base font-semibold text-fg">{view.config.name}</p>
-            <p class="truncate text-xs uppercase tracking-wider text-fg-subtle">{roleLabel}</p>
+            <p class="truncate text-base font-semibold leading-tight text-fg">
+                {view.config.name}
+            </p>
+            <p class="mt-0.5 truncate text-xs font-medium uppercase tracking-wider text-fg-muted">
+                {roleLabel}
+            </p>
         </div>
         <ActorStateBadge state={view.state} />
-    </header>
+    </div>
 
-    <p class="text-sm text-fg-muted">{detail}</p>
+    <div class="px-5 pt-3 pb-2 {statusTint}">
+        <p class="text-sm leading-relaxed text-fg">{detail}</p>
+        {#if task}
+            <div class="mt-2 space-y-1 text-xs">
+                <p class="font-mono text-fg-muted">
+                    <span class="text-fg-subtle">task</span>
+                    <span class="ml-1 text-fg">{task.id}</span>
+                </p>
+                {#if task.requirement}
+                    <p class="font-mono text-fg-subtle">{task.requirement}</p>
+                {/if}
+            </div>
+        {/if}
+    </div>
 
-    {#if task}
-        <p class="font-mono text-xs text-fg-subtle">
-            <span class="text-fg-subtle">task</span>
-            <span class="ml-1 font-mono text-fg-muted">{task.id}</span>
-            {#if task.requirement}
-                <span class="ml-1 text-fg-subtle">·</span>
-                <span class="ml-1 font-mono text-fg-subtle">{task.requirement}</span>
-            {/if}
-        </p>
-    {/if}
-
-    <dl class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs text-fg-muted">
+    <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-divider px-5 py-3 text-xs text-fg-muted">
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">id</dt>
-        <dd class="truncate font-mono">{view.id}</dd>
+        <dd class="truncate font-mono text-fg">{view.id}</dd>
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">workspace</dt>
-        <dd class="truncate font-mono">{view.config.workspace}</dd>
+        <dd class="truncate font-mono text-fg">{view.config.workspace}</dd>
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">policy</dt>
-        <dd class="truncate font-mono">{view.config.policy.kind}</dd>
+        <dd class="truncate font-mono text-fg">{view.config.policy.kind}</dd>
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">last event</dt>
-        <dd class="truncate font-mono">{relativeLastEvent}</dd>
+        <dd class="truncate font-mono text-fg">{relativeLastEvent}</dd>
     </dl>
 </article>

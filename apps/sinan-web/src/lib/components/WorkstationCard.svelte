@@ -199,10 +199,10 @@
         class="relative flex items-center justify-center {statusTint} px-5 pb-4 pt-5"
         data-scene="true"
     >
-        <!-- Role-colored halo behind the avatar so each workstation
+        <!-- Role-colored halo behind the character so each workstation
              reads as a distinct spot in the office floor. -->
         <div
-            class="relative flex h-24 w-24 items-center justify-center rounded-full {roleClass} ring-4 ring-surface-1 shadow-[inset_0_-3px_0_rgba(15,23,42,0.12),0_2px_4px_rgba(15,23,42,0.08)]"
+            class="relative flex h-28 w-28 items-center justify-center rounded-full {roleClass} ring-4 ring-surface-1 shadow-[inset_0_-3px_0_rgba(15,23,42,0.12),0_2px_4px_rgba(15,23,42,0.08)]"
             aria-hidden="true"
         >
             <CharacterAvatar

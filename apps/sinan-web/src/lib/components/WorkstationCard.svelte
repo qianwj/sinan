@@ -1,40 +1,39 @@
 <script lang="ts">
     import type { ActorRole, ActorView, ActorState } from "sinan-core";
     import ActorStateBadge from "./ActorStateBadge.svelte";
+    import CharacterAvatar from "./CharacterAvatar.svelte";
     import { lookupTask } from "$lib/fixtures.js";
 
     /**
      * One workstation = one actor (web-agent-office.md §5.1).
      *
-     * Layout (top → bottom):
-     *   - top stripe in the status color (4px) — identity color
-     *     shows on the left; status color shows on top, so a single
-     *     glance tells you "who they are" and "what they are doing"
-     *   - identity block: large initials, name, role label
-     *   - state badge + detail line
-     *   - task line when running (taskId + requirement + title)
+     * Card anatomy (top → bottom):
+     *   - top status stripe (1px) — actor state color
+     *   - scene zone: desk surface + 64x64 SVG character with role prop
+     *     (web-agent-office.md §D-05). The avatar frame is the role
+     *     identity color; the prop "moves" in a state-appropriate way
+     *     (typing / drawing / scanning / tapping). The avatar itself
+     *     never animates.
+     *   - identity row: actor name + role label + state badge
+     *   - detail block: state-specific one-liner (per §6.3 "who did
+     *     what to what, and what is next"); status-tinted background
      *   - meta grid: id, workspace, policy, last event
      */
     let { view }: { view: ActorView } = $props();
 
-    const initials = $derived(initialsFor(view.config.name));
     const roleLabel = $derived(roleLabelFor(view.config.role));
     const roleClass = $derived(roleClassFor(view.config.role));
     const statusClass = $derived(statusClassFor(view.state));
     const statusTint = $derived(statusTintFor(view.state));
+    const statusText = $derived(statusTextFor(view.state));
     const detail = $derived(detailFor(view));
     const task = $derived(taskFor(view.state));
+    const isQuarantined = $derived(view.state.kind === "quarantined");
+    const isFailed = $derived(view.state.kind === "failed");
+    const isHighAttention = $derived(isQuarantined || isFailed);
     const relativeLastEvent = $derived(
         view.lastEventAt === null ? "never" : relativeTime(view.lastEventAt),
     );
-
-    function initialsFor(name: string): string {
-        const parts = name.trim().split(/\s+/);
-        if (parts.length === 0) return "?";
-        const first = parts[0]?.charAt(0) ?? "";
-        const last = parts.length > 1 ? (parts[parts.length - 1]?.charAt(0) ?? "") : "";
-        return (first + last).toUpperCase() || "?";
-    }
 
     function roleLabelFor(role: ActorRole): string {
         switch (role) {
@@ -108,6 +107,27 @@
         }
     }
 
+    function statusTextFor(state: ActorState): string {
+        switch (state.kind) {
+            case "ready":
+            case "created":
+            case "initializing":
+                return "at the desk";
+            case "running":
+                return "heads down";
+            case "paused":
+                return "stepped away";
+            case "failed":
+                return "needs a hand";
+            case "restarting":
+                return "coming back";
+            case "quarantined":
+                return "locked — needs review";
+            case "terminated":
+                return "archived";
+        }
+    }
+
     function detailFor(view: ActorView): string {
         const state = view.state;
         switch (state.kind) {
@@ -130,7 +150,7 @@
             case "ready":
             case "created":
             case "initializing":
-                return "idle";
+                return "idle — waiting for a task";
         }
     }
 
@@ -159,45 +179,79 @@
 </script>
 
 <article
-    class="group relative flex flex-col overflow-hidden rounded-xl border border-divider bg-surface-1 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_1px_3px_rgba(15,23,42,0.06)] transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,23,42,0.08),0_2px_4px_rgba(15,23,42,0.06)] focus-within:ring-2 focus-within:ring-status-running focus-within:ring-offset-2"
+    class="group relative flex flex-col overflow-hidden rounded-xl border bg-surface-1 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_1px_3px_rgba(15,23,42,0.06)] transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,23,42,0.08),0_2px_4px_rgba(15,23,42,0.06)] focus-within:ring-2 focus-within:ring-status-running focus-within:ring-offset-2"
+    class:border-status-quarantined={isQuarantined}
+    class:border-status-failed={isFailed}
+    class:border-divider={!isHighAttention}
     data-state={view.state.kind}
 >
+    <!-- Top status stripe (per §6.1) -->
     <div class="h-1 w-full {statusClass}" aria-hidden="true"></div>
 
-    <div class="flex items-start gap-3 px-5 pt-4">
+    <!--
+        Scene zone — the workstation "photo".
+        The avatar frame is the role identity color; the prop is drawn
+        inside the SVG. The desk surface is a subtle role-tinted
+        background so each workstation reads as a distinct spot in the
+        office (D-05 + §5.3).
+    -->
+    <div
+        class="relative flex items-center justify-center {statusTint} px-5 pb-4 pt-5"
+        data-scene="true"
+    >
+        <!-- Role-colored halo behind the avatar so each workstation
+             reads as a distinct spot in the office floor. -->
         <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold text-palette-slate-50 {roleClass}"
+            class="relative flex h-24 w-24 items-center justify-center rounded-full {roleClass} ring-4 ring-surface-1 shadow-[inset_0_-3px_0_rgba(15,23,42,0.12),0_2px_4px_rgba(15,23,42,0.08)]"
             aria-hidden="true"
         >
-            {initials}
+            <CharacterAvatar
+                role={view.config.role}
+                state={view.state}
+                title={`${view.config.name}, ${roleLabel}`}
+            />
         </div>
-        <div class="min-w-0 flex-1">
-            <p class="truncate text-base font-semibold leading-tight text-fg">
-                {view.config.name}
-            </p>
-            <p class="mt-0.5 truncate text-xs font-medium uppercase tracking-wider text-fg-muted">
-                {roleLabel}
-            </p>
-        </div>
-        <ActorStateBadge state={view.state} />
     </div>
 
-    <div class="px-5 pt-3 pb-2 {statusTint}">
+    <!-- Identity row: name + role + state badge (no more overlap) -->
+    <div class="flex items-center gap-2 px-5 pt-3">
+        <p class="truncate text-base font-semibold leading-tight text-fg">
+            {view.config.name}
+        </p>
+        <span class="shrink-0 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+            {roleLabel}
+        </span>
+        <div class="ml-auto">
+            <ActorStateBadge state={view.state} />
+        </div>
+    </div>
+    <p class="px-5 pt-0.5 text-xs text-fg-muted">
+        <span class:font-semibold={isHighAttention} class:text-status-failed={isFailed} class:text-status-quarantined={isQuarantined}>
+            {statusText}
+        </span>
+        {#if task}
+            <span class="text-fg-subtle"> · </span>
+            <span class="text-fg">{task.title}</span>
+        {/if}
+    </p>
+
+    <!-- Detail block: state-tinted, with state-specific one-liner -->
+    <div class="px-5 pt-3 pb-2">
         <p class="text-sm leading-relaxed text-fg">{detail}</p>
         {#if task}
-            <div class="mt-2 space-y-1 text-xs">
-                <p class="font-mono text-fg-muted">
-                    <span class="text-fg-subtle">task</span>
-                    <span class="ml-1 text-fg">{task.id}</span>
-                </p>
+            <div class="mt-2 flex items-center gap-2 text-xs">
+                <span class="rounded-md border border-divider bg-canvas px-1.5 py-0.5 font-mono text-fg">
+                    task {task.id}
+                </span>
                 {#if task.requirement}
-                    <p class="font-mono text-fg-subtle">{task.requirement}</p>
+                    <span class="font-mono text-fg-subtle">{task.requirement}</span>
                 {/if}
             </div>
         {/if}
     </div>
 
-    <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-divider px-5 py-3 text-xs text-fg-muted">
+    <!-- Meta grid -->
+    <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-divider px-5 py-3 text-xs text-fg-muted">
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">id</dt>
         <dd class="truncate font-mono text-fg">{view.id}</dd>
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">workspace</dt>

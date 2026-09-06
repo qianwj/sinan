@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/**
+ * Theme tokens for the office SPA.
+ *
+ * The `@theme` directive (Tailwind v4) registers every token below as a
+ * CSS variable AND a Tailwind utility class (e.g., `bg-canvas`,
+ * `text-fg-muted`, `border-divider`). Components reference the semantic
+ * layer only — palette tokens are reserved for `app.css` itself.
+ *
+ * Aligned with `docs/web-visual-language.md` v0.3:
+ * - `palette-slate-*` is the raw scale (light + dark resolve to the
+ *   same value per the doc; theme switching is layered on top in §4.6)
+ * - `color-status-*` mirrors the state colors used in `ActorStateBadge`
+ * - `color-canvas` / `color-surface-*` map to the layout surfaces
+ *   from §4.1 (canvas, surface-1, surface-2)
+ */
+@theme {
+  --color-palette-slate-50: #f8fafc;
+  --color-palette-slate-100: #f1f5f9;
+  --color-palette-slate-200: #e2e8f0;
+  --color-palette-slate-300: #cbd5e1;
+  --color-palette-slate-400: #94a3b8;
+  --color-palette-slate-500: #64748b;
+  --color-palette-slate-600: #475569;
+  --color-palette-slate-700: #334155;
+  --color-palette-slate-800: #1e293b;
+  --color-palette-slate-900: #0f172a;
+  --color-palette-slate-950: #020617;
+
+  --color-canvas: var(--color-palette-slate-50);
+  --color-canvas-deep: var(--color-palette-slate-950);
+  --color-surface-1: var(--color-palette-slate-100);
+  --color-surface-2: var(--color-palette-slate-200);
+  --color-fg: var(--color-palette-slate-900);
+  --color-fg-muted: var(--color-palette-slate-600);
+  --color-fg-subtle: var(--color-palette-slate-500);
+  --color-divider: var(--color-palette-slate-200);
+  --color-border-strong: var(--color-palette-slate-300);
+
+  --color-status-ready: #16a34a;
+  --color-status-running: #2563eb;
+  --color-status-paused: #f59e0b;
+  --color-status-failed: #dc2626;
+  --color-status-restarting: #0ea5e9;
+  --color-status-quarantined: #7c3aed;
+  --color-status-terminated: var(--color-palette-slate-500);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}
+
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    background-color: var(--color-canvas-deep);
+    color: var(--color-palette-slate-100);
+  }
+}

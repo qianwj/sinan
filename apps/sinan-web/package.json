@@ -1,14 +1,27 @@
 {
   "name": "sinan-web",
   "version": "0.0.1",
-  "description": "",
-  "main": "index.js",
-  "devDependencies": {},
+  "description": "Single-user office UI for the Sinan agent coordination system",
+  "type": "module",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite dev --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
-  "keywords": [],
-  "author": "qianwj",
-  "license": "ISC",
-  "type": "commonjs"
+  "dependencies": {
+    "sinan-core": "0.0.1"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tailwindcss/vite": "^4.0.0",
+    "svelte": "^5.20.0",
+    "svelte-check": "^4.1.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
 }

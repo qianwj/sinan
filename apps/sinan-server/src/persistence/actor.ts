@@ -243,7 +243,8 @@ export class ActorEventRepository {
         to: ActorState,
         cause: EventCause,
         at: Timestamp,
-    ): number {
+    ): { sequence: EventSequence; eventId: string } {
+        const eventId = randomUUID();
         const inserted = this.database
             .get<{ sequence: number }>(
                 `INSERT INTO actor_event (actor_id, sequence, event_id, event_json, created_at)
@@ -255,12 +256,12 @@ export class ActorEventRepository {
                  RETURNING sequence`,
                 actorId,
                 actorId,
-                randomUUID(),
+                eventId,
                 JSON.stringify({ kind: "state-changed", from, to, at, cause }),
                 at,
             )
             .get();
-        return inserted.sequence;
+        return { sequence: inserted.sequence, eventId };
     }
 
     /**
@@ -342,6 +343,50 @@ export class ActorEventRepository {
         return this.database
             .all<{ actor_id: string }>(sql, ...knownIds)
             .map((row) => row.actor_id);
+    }
+
+    /**
+     * Returns the parsed `created_at` of the event whose `event_id` is the
+     * given cursor, or empty when the id is not present. The SSE handler
+     * uses this to map a `Last-Event-ID` to the timestamp boundary for
+     * the subsequent `listAllAfterTimestamp` replay.
+     */
+    public findEventCreatedAt(eventId: string): Optional<Timestamp> {
+        return this.database
+            .get<{ created_at: number }>(
+                "SELECT created_at FROM actor_event WHERE event_id = ?",
+                eventId,
+            )
+            .map((row) => row.created_at);
+    }
+
+    /**
+     * Returns every event whose `created_at` is strictly greater than
+     * `since`, ordered ascending and capped at `limit`. Used by the SSE
+     * handler to replay history past a `Last-Event-ID` cursor.
+     */
+    public listAllAfterTimestamp(since: Timestamp, limit: number): Array<{
+        actorId: ActorId;
+        sequence: EventSequence;
+        eventId: string;
+        event: ActorEvent;
+    }> {
+        if (limit <= 0) return [];
+        const rows = this.database.all<ActorEventRow>(
+            `SELECT actor_id, sequence, event_id, event_json, created_at
+             FROM actor_event
+             WHERE created_at > ?
+             ORDER BY created_at ASC, sequence ASC
+             LIMIT ?`,
+            since,
+            limit,
+        );
+        return rows.map((row) => ({
+            actorId: row.actor_id,
+            sequence: row.sequence,
+            eventId: row.event_id,
+            event: parseEventRow(row),
+        }));
     }
 }
 

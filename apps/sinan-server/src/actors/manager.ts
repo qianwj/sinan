@@ -4,9 +4,11 @@ import { join, resolve } from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { Optional } from "sinan-core";
 import type { Database } from "../persistence/database.js";
+import type { EventPublisher, PublishedEvent } from "../events/event_publisher.js";
 import { type AgentSessionFactory, PiAgentSessionFactory, } from "./agent.js";
 import {
     Actor,
+    type ActorCommand,
     type ActorConfig,
     type ActorError,
     type ActorEvent,
@@ -24,6 +26,7 @@ import {
 } from "./actor.js";
 import { ActorConfigRepository, ActorEventRepository } from "../persistence/actor.js";
 import type { ActorFilter } from "./actor.js";
+import { ManagerError } from "./manager_error.js";
 
 const ACTOR_ROLES: readonly ActorRole[] = [
     "product_manager",
@@ -46,6 +49,27 @@ const EVENTS_PAGE_LIMIT_MAX = 200;
 /** Default page size when the caller does not specify one. */
 const EVENTS_PAGE_LIMIT_DEFAULT = 20;
 
+/** Commands the current runtime version actually handles. The rest throw
+ *  `not-implemented` and are reserved for the task / checkpoint modules. */
+const HANDLED_COMMANDS: ReadonlySet<ActorCommand["kind"]> = new Set([
+    "pause",
+    "resume",
+    "restart",
+    "quarantine",
+    "terminate",
+]);
+
+/**
+ * No-op publisher used when the caller does not inject one. The server
+ * always injects `InMemoryEventPublisher`; tests that do not care about
+ * fan-out rely on the default to keep their setup terse.
+ */
+const SILENT_PUBLISHER: EventPublisher = {
+    publish() { /* drop */ },
+    subscribe() { return () => { /* drop */ }; },
+    subscribeAll() { return () => { /* drop */ }; },
+};
+
 /**
  * Creates actors, records their lifecycle facts, and owns active agents.
  *
@@ -60,6 +84,7 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
     private readonly sessionDirectory: string;
     private readonly configRepository: ActorConfigRepository;
     private readonly eventRepository: ActorEventRepository;
+    private readonly publisher: EventPublisher;
     private disposed = false;
 
     public constructor(
@@ -74,6 +99,7 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
         );
         this.configRepository = new ActorConfigRepository(this.database);
         this.eventRepository = new ActorEventRepository(this.database);
+        this.publisher = options.publisher ?? SILENT_PUBLISHER;
     }
 
     /**
@@ -90,19 +116,24 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
         this.assertUsable();
         const config = buildConfig(input, this.sessionDirectory);
         const createdAt = config.createdAt;
-        const createdState: ActorState = {kind: "created"};
-        const initializingState: ActorState = {kind: "initializing"};
+        const createdState: ActorState = { kind: "created" };
+        const initializingState: ActorState = { kind: "initializing" };
 
+        let firstEnvelope: PublishedEvent | undefined;
         this.database.transaction(() => {
             this.configRepository.create(config, createdState, createdAt);
-            this.eventRepository.recordStateChanged(
+            const result = this.eventRepository.recordStateChanged(
                 config.id,
                 initializingState,
                 createdState,
-                {kind: "command", command: "create"},
+                { kind: "command", command: "create" },
                 createdAt,
             );
+            firstEnvelope = makeEnvelope(config.id, result, initializingState, createdState, { kind: "command", command: "create" }, createdAt);
         });
+        if (firstEnvelope !== undefined) {
+            this.publisher.publish(firstEnvelope);
+        }
 
         let agent: TAgent;
         try {
@@ -119,14 +150,16 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
                 since: failedAt,
             };
             try {
-                this.persistState(config.id, createdState, failedState, {
-                    kind: "external-error",
-                }, failedAt);
+                const envelope = this.persistState(
+                    config.id, createdState, failedState,
+                    { kind: "external-error" }, failedAt,
+                );
+                this.publisher.publish(envelope);
             } catch (persistenceCause) {
                 throw new AggregateError(
                     [cause, persistenceCause],
                     `Actor ${config.id} failed to initialize and record its failure`,
-                    {cause},
+                    { cause },
                 );
             }
             throw cause;
@@ -139,12 +172,14 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
             throw new Error("ActorManager is disposed");
         }
 
-        const readyState: ActorState = {kind: "ready"};
+        const readyState: ActorState = { kind: "ready" };
         try {
-            this.persistState(config.id, createdState, readyState, {
-                kind: "command",
-                command: "init",
-            }, Date.now());
+            const envelope = this.persistState(
+                config.id, createdState, readyState,
+                { kind: "command", command: "init" },
+                Date.now(),
+            );
+            this.publisher.publish(envelope);
         } catch (cause) {
             disposeAgent(agent);
             throw cause;
@@ -157,19 +192,6 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
 
     /**
      * Reconciles active actors after a server restart, per `actor-runtime.md` §8.5.
-     *
-     * Default policy for the first runtime version is intentionally
-     * conservative: only actors whose latest persisted state is `ready` (or
-     * `created` before the first init event was recorded) are resumed
-     * automatically. Anything else — `running`, `paused`, `failed`,
-     * `quarantined`, `restarting` — is left untouched in the database and
-     * surfaced through the report for the human to decide. A recovery event
-     * is recorded for every resumed actor; quarantine paths never write to
-     * the event log because the state has not changed.
-     *
-     * @returns A `RecoveryReport` listing resumed actors, quarantined actors,
-     *          orphan event ids, and (in a future blackboard module)
-     *          missing-config references.
      */
     public async reload(): Promise<RecoveryReport> {
         this.assertUsable();
@@ -183,15 +205,12 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
         for (const config of configs) {
             const latest = this.eventRepository.findLatest(config.id);
             if (!latest.isPresent()) {
-                // No events at all for this config — the only legal source of
-                // a config row is `create()`, so this indicates lost history
-                // (e.g. an `actor_event` truncation). Surface it for a human.
                 missingConfigs.push(config.id);
                 continue;
             }
             const current = latest.get().state;
             if (current.kind === "terminated") {
-                continue; // intentionally do not reactivate
+                continue;
             }
             if (!isResumable(current)) {
                 quarantined.push({ id: config.id, reason: recoveryReason(current) });
@@ -210,11 +229,67 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
     }
 
     /**
+     * Dispatches a command to an actor and applies the corresponding state
+     * transition per `actor-runtime.md` §4. Throws `ManagerError` on
+     * `actor-not-found`, `invalid-state-transition`, or `not-implemented`.
+     * Successful transitions publish a `state-changed` event to the
+     * configured `EventPublisher`.
+     */
+    public send(actorId: ActorId, command: ActorCommand): void {
+        this.assertUsable();
+        if (!HANDLED_COMMANDS.has(command.kind)) {
+            throw new ManagerError(
+                "not-implemented",
+                `Command '${command.kind}' is not handled by the current runtime version`,
+                { command: command.kind },
+            );
+        }
+
+        const view = this.configRepository.findById(actorId);
+        if (view.isEmpty()) {
+            throw new ManagerError("actor-not-found", `Actor ${actorId} does not exist`, { actorId });
+        }
+        const latest = this.eventRepository.findLatest(actorId);
+        if (latest.isEmpty()) {
+            // Should be impossible: every config row came from `create()`,
+            // which always writes an event. If we land here the data store
+            // is in an inconsistent state.
+            throw new ManagerError(
+                "persistence-unavailable",
+                `Actor ${actorId} has a config row but no events`,
+                { actorId },
+            );
+        }
+        const from = latest.get().state;
+
+        // `terminated` actors are write-once — every command is rejected.
+        if (from.kind === "terminated") {
+            throw new ManagerError(
+                "invalid-state-transition",
+                `Actor ${actorId} is terminated and cannot accept commands`,
+                { actorId, command: command.kind, state: from.kind },
+            );
+        }
+
+        const to = computeTargetState(from, command, Date.now());
+        if (to === null) {
+            throw new ManagerError(
+                "invalid-state-transition",
+                `Command '${command.kind}' is not valid from state '${from.kind}'`,
+                { actorId, command: command.kind, state: from.kind },
+            );
+        }
+
+        const at = Date.now();
+        const cause: EventCause = { kind: "command", command: command.kind };
+        const envelope = this.persistState(actorId, from, to, cause, at);
+        this.publisher.publish(envelope);
+        this.applyToProjection(actorId, to);
+    }
+
+    /**
      * Returns the persisted view for an actor, or empty when no such actor
-     * exists. Reads through `actor_config` and the latest `state-changed`
-     * event, so callers always see what the database says — not just what is
-     * currently in memory. A live agent projection, when one exists, is not
-     * surfaced through this method.
+     * exists.
      */
     public get(actorId: ActorId): Optional<ActorView> {
         return this.configRepository
@@ -236,9 +311,7 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
 
     /**
      * Returns events for `actorId` whose sequence is greater than `since`,
-     * ordered ascending and capped at `limit`. The first sequence is 1, so
-     * `since = 0` reads the full log. The cap is clamped to
-     * `EVENTS_PAGE_LIMIT_MAX` to bound memory use.
+     * ordered ascending and capped at `limit`.
      */
     public eventsOf(
         actorId: ActorId,
@@ -286,7 +359,8 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
     }
 
     /**
-     * Updates the current state and appends its event atomically.
+     * Updates the current state and appends its event atomically. Returns the
+     * envelope so callers can publish it without re-reading the row.
      */
     private persistState(
         actorId: ActorId,
@@ -294,11 +368,20 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
         to: ActorState,
         cause: EventCause,
         at: Timestamp,
-    ): void {
+    ): PublishedEvent {
+        let result: { sequence: EventSequence; eventId: string } | undefined;
         this.database.transaction(() => {
             this.configRepository.updateOne(actorId, to, at);
-            this.eventRepository.recordStateChanged(actorId, from, to, cause, at);
+            result = this.eventRepository.recordStateChanged(actorId, from, to, cause, at);
         });
+        if (result === undefined) {
+            throw new ManagerError(
+                "persistence-unavailable",
+                `Failed to record state-changed event for ${actorId}`,
+                { actorId },
+            );
+        }
+        return makeEnvelope(actorId, result, from, to, cause, at);
     }
 
     /**
@@ -313,7 +396,10 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
     ): Promise<void> {
         const readyState: ActorState = { kind: "ready" };
         const recoveryAt = Date.now();
-        this.persistState(config.id, current, readyState, { kind: "recovery" }, recoveryAt);
+        const envelope = this.persistState(
+            config.id, current, readyState, { kind: "recovery" }, recoveryAt,
+        );
+        this.publisher.publish(envelope);
         const agent = await this.agentFactory.create({
             workspace: config.workspace,
             sessionFile: config.sessionFile,
@@ -325,24 +411,85 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
         }
         this.actors.set(config.id, new Actor(config, readyState, agent));
     }
+
+    /**
+     * Mirrors the persisted state into the in-memory projection. `terminated`
+     * removes the actor from the map and disposes its agent; the other
+     * states update the `Actor.state` field in place so any live agent
+     * reference stays valid.
+     */
+    private applyToProjection(actorId: ActorId, to: ActorState): void {
+        const actor = this.actors.get(actorId);
+        if (actor === undefined) return;
+        if (to.kind === "terminated") {
+            try {
+                disposeAgent(actor.agent);
+            } catch (cause) {
+                console.error(`Failed to dispose agent for terminated actor ${actorId}:`, cause);
+            }
+            this.actors.delete(actorId);
+            return;
+        }
+        // Replace the projection with a new one carrying the updated state.
+        this.actors.set(actorId, new Actor(actor.config, to, actor.agent));
+    }
 }
 
 /** Options controlling where Pi's per-actor JSONL sessions are stored. */
 export interface ActorManagerOptions {
     sessionDirectory?: string;
+    /** When provided, state-changed events are fanned out to subscribers. */
+    publisher?: EventPublisher;
+}
+
+/**
+ * Maps a command to the resulting state, or returns `null` when the
+ * transition is invalid for `from`. Each branch corresponds to a row in
+ * `actor-runtime.md` §4.
+ */
+function computeTargetState(
+    from: ActorState,
+    command: ActorCommand,
+    at: Timestamp,
+): ActorState | null {
+    switch (command.kind) {
+        case "pause":
+            if (from.kind !== "ready" && from.kind !== "running") return null;
+            return { kind: "paused", reason: command.reason, since: at };
+        case "resume":
+            if (from.kind !== "paused") return null;
+            return { kind: "ready" };
+        case "restart":
+            if (
+                from.kind !== "paused"
+                && from.kind !== "failed"
+                && from.kind !== "quarantined"
+                && from.kind !== "restarting"
+            ) return null;
+            // Skips the `restarting` intermediate for now: with no
+            // checkpoint table, restoration is instantaneous, so the
+            // observer never sees a `restarting` snapshot.
+            return { kind: "ready" };
+        case "quarantine":
+            return { kind: "quarantined", reason: command.reason, since: at };
+        case "terminate":
+            return { kind: "terminated", clean: command.clean, at };
+        case "init":
+        case "assign":
+        case "cancel":
+        case "checkpoint":
+            return null; // handled by the not-implemented branch in `send`
+    }
 }
 
 /**
  * Conservative policy: only actors that were idle before the restart are
- * resumed automatically. `running` actors have lost their lease and may have
- * produced external side effects; `paused`/`failed`/`quarantined`/`restarting`
- * are decisions the human must make.
+ * resumed automatically.
  */
 function isResumable(state: ActorState): boolean {
     return state.kind === "ready" || state.kind === "created";
 }
 
-/** Human-readable reason used to populate the recovery report. */
 function recoveryReason(state: ActorState): string {
     switch (state.kind) {
         case "running":
@@ -469,4 +616,27 @@ function disposeAgentQuietly(agent: object): void {
     } catch {
         // The manager is already disposed; there is no active owner to report to.
     }
+}
+
+function makeEnvelope(
+    actorId: ActorId,
+    result: { sequence: EventSequence; eventId: string },
+    from: ActorState,
+    to: ActorState,
+    cause: EventCause,
+    at: Timestamp,
+): PublishedEvent {
+    return {
+        actorId,
+        sequence: result.sequence,
+        eventId: result.eventId,
+        event: {
+            kind: "state-changed",
+            sequence: result.sequence,
+            from,
+            to,
+            cause,
+            at,
+        },
+    };
 }

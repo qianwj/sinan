@@ -166,13 +166,15 @@ test("ActorEventRepository.recordStateChanged increments sequence and returns it
     const events = new ActorEventRepository(database);
 
     const cause: EventCause = { kind: "command", command: "init" };
-    const s1 = events.recordStateChanged("a-1", { kind: "created" }, { kind: "ready" }, cause, 1_000);
-    const s2 = events.recordStateChanged("a-1", { kind: "ready" }, { kind: "ready" }, cause, 2_000);
-    const s3 = events.recordStateChanged("a-2", { kind: "created" }, { kind: "ready" }, cause, 1_500);
+    const r1 = events.recordStateChanged("a-1", { kind: "created" }, { kind: "ready" }, cause, 1_000);
+    const r2 = events.recordStateChanged("a-1", { kind: "ready" }, { kind: "ready" }, cause, 2_000);
+    const r3 = events.recordStateChanged("a-2", { kind: "created" }, { kind: "ready" }, cause, 1_500);
 
-    assert.equal(s1, 1);
-    assert.equal(s2, 2);
-    assert.equal(s3, 1, "sequence is per-actor");
+    assert.equal(r1.sequence, 1);
+    assert.equal(r2.sequence, 2);
+    assert.equal(r3.sequence, 1, "sequence is per-actor");
+    assert.notEqual(r1.eventId, r2.eventId, "each event gets a unique id");
+    assert.notEqual(r1.eventId, r3.eventId);
 });
 
 test("ActorEventRepository.findLatest returns the parsed state and timestamp of the latest event", () => {

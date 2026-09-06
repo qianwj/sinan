@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+    ActorCommandSchema,
     CreateActorInputSchema,
     ListActorsQuerySchema,
     ListEventsQuerySchema,
@@ -12,29 +13,33 @@ test("RestartPolicySchema accepts never without extra fields", () => {
     assert.deepEqual(parsed, { kind: "never" });
 });
 
-test("RestartPolicySchema accepts on-failure without extra fields", () => {
-    const parsed = RestartPolicySchema.parse({ kind: "on-failure" });
-    assert.deepEqual(parsed, { kind: "on-failure" });
-});
-
-test("RestartPolicySchema accepts on-failure-with-backoff with all fields", () => {
+test("RestartPolicySchema accepts on-failure with retry / backoff fields", () => {
     const parsed = RestartPolicySchema.parse({
-        kind: "on-failure-with-backoff",
+        kind: "on-failure",
         maxRetries: 3,
         backoffMs: 1_000,
         jitter: true,
     });
     assert.deepEqual(parsed, {
-        kind: "on-failure-with-backoff",
+        kind: "on-failure",
         maxRetries: 3,
         backoffMs: 1_000,
         jitter: true,
     });
 });
 
+test("RestartPolicySchema accepts always with backoff fields", () => {
+    const parsed = RestartPolicySchema.parse({
+        kind: "always",
+        backoffMs: 5_000,
+        jitter: false,
+    });
+    assert.deepEqual(parsed, { kind: "always", backoffMs: 5_000, jitter: false });
+});
+
 test("RestartPolicySchema rejects unknown fields via .strict()", () => {
     const result = RestartPolicySchema.safeParse({
-        kind: "on-failure-with-backoff",
+        kind: "on-failure",
         maxRetries: 1,
         backoffMs: 1_000,
         jitter: true,
@@ -48,9 +53,9 @@ test("CreateActorInputSchema accepts an explicit policy", () => {
         name: "Builder",
         role: "development_engineer",
         workspace: "/w",
-        policy: { kind: "on-failure" },
+        policy: { kind: "always", backoffMs: 1_000, jitter: false },
     });
-    assert.deepEqual(parsed.policy, { kind: "on-failure" });
+    assert.deepEqual(parsed.policy, { kind: "always", backoffMs: 1_000, jitter: false });
 });
 
 test("CreateActorInputSchema defaults the policy by leaving it undefined", () => {
@@ -98,4 +103,34 @@ test("ListEventsQuerySchema coerces and defaults query parameters", () => {
 test("ListEventsQuerySchema rejects negative since and non-positive limit", () => {
     assert.equal(ListEventsQuerySchema.safeParse({ since: -1 }).success, false);
     assert.equal(ListEventsQuerySchema.safeParse({ limit: 0 }).success, false);
+});
+
+test("ActorCommandSchema accepts each handled command", () => {
+    assert.deepEqual(ActorCommandSchema.parse({ kind: "pause", reason: "user" }), { kind: "pause", reason: "user" });
+    assert.deepEqual(ActorCommandSchema.parse({ kind: "resume" }), { kind: "resume" });
+    assert.deepEqual(ActorCommandSchema.parse({ kind: "restart", reason: "bug" }), { kind: "restart", reason: "bug" });
+    assert.deepEqual(ActorCommandSchema.parse({ kind: "quarantine", reason: "stuck" }), { kind: "quarantine", reason: "stuck" });
+    assert.deepEqual(ActorCommandSchema.parse({ kind: "terminate", clean: true }), { kind: "terminate", clean: true });
+});
+
+test("ActorCommandSchema rejects unhandled command kinds (init, assign, cancel, checkpoint)", () => {
+    for (const body of [
+        { kind: "init" },
+        { kind: "assign", taskId: "t", leaseId: "l" },
+        { kind: "cancel", reason: "x" },
+        { kind: "checkpoint", note: null },
+    ]) {
+        assert.equal(ActorCommandSchema.safeParse(body).success, false, JSON.stringify(body));
+    }
+});
+
+test("ActorCommandSchema requires the reason field for pause, restart, quarantine", () => {
+    assert.equal(ActorCommandSchema.safeParse({ kind: "pause" }).success, false);
+    assert.equal(ActorCommandSchema.safeParse({ kind: "pause", reason: "" }).success, false);
+    assert.equal(ActorCommandSchema.safeParse({ kind: "restart" }).success, false);
+    assert.equal(ActorCommandSchema.safeParse({ kind: "quarantine" }).success, false);
+});
+
+test("ActorCommandSchema rejects unknown fields via .strict()", () => {
+    assert.equal(ActorCommandSchema.safeParse({ kind: "resume", extra: 1 }).success, false);
 });

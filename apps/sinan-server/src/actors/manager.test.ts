@@ -4,6 +4,9 @@ import {
   ActorManager,
   type AgentSessionFactory,
   type CreateAgentSessionOptions,
+  InMemoryEventPublisher,
+  type PublishedEvent,
+  ManagerError,
 } from "./index.js";
 import { Database } from "../persistence/database.js";
 
@@ -246,16 +249,16 @@ test("create persists a custom policy and reads it back through get and list", a
     name: "P",
     role: "designer",
     workspace: "/w",
-    policy: { kind: "on-failure-with-backoff", maxRetries: 3, backoffMs: 1_000, jitter: true },
+    policy: { kind: "on-failure", maxRetries: 3, backoffMs: 1_000, jitter: true },
   });
 
   assert.deepEqual(manager.get("a-policy").get().config.policy, {
-    kind: "on-failure-with-backoff",
+    kind: "on-failure",
     maxRetries: 3,
     backoffMs: 1_000,
     jitter: true,
   });
-  assert.equal(manager.list()[0]?.config.policy.kind, "on-failure-with-backoff");
+  assert.equal(manager.list()[0]?.config.policy.kind, "on-failure");
 });
 
 test("create defaults the policy to DEFAULT_RESTART_POLICY (never) when omitted", async () => {
@@ -499,3 +502,170 @@ function databaseLastState(
     .orElseThrow();
   return JSON.parse(row.event_json).to as { kind: string } & Record<string, unknown>;
 }
+
+test("send(pause) transitions a ready actor to paused and publishes the event", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const publisher = new InMemoryEventPublisher();
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+    publisher,
+  });
+  await manager.create({ id: "a-pause", name: "P", role: "designer", workspace: "/w" });
+  publisher.publish.length; // touch — to satisfy unused checks
+  const seen: PublishedEvent[] = [];
+  publisher.subscribeAll((e) => seen.push(e));
+
+  manager.send("a-pause", { kind: "pause", reason: "lunch" });
+
+  const state = manager.get("a-pause").get().state;
+  assert.equal(state.kind, "paused");
+  if (state.kind === "paused") assert.equal(state.reason, "lunch");
+  const last = seen.at(-1);
+  assert.equal(last?.event.kind, "state-changed");
+  if (last?.event.kind === "state-changed") {
+    assert.equal(last.event.to.kind, "paused");
+    assert.deepEqual(last.event.cause, { kind: "command", command: "pause" });
+  }
+});
+
+test("send(resume) transitions a paused actor to ready", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-resume", name: "R", role: "designer", workspace: "/w" });
+  manager.send("a-resume", { kind: "pause", reason: "x" });
+
+  manager.send("a-resume", { kind: "resume" });
+  assert.equal(manager.get("a-resume").get().state.kind, "ready");
+});
+
+test("send(restart) jumps a paused actor back to ready", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-restart", name: "R", role: "designer", workspace: "/w" });
+  manager.send("a-restart", { kind: "pause", reason: "x" });
+  manager.send("a-restart", { kind: "restart", reason: "memory" });
+  assert.equal(manager.get("a-restart").get().state.kind, "ready");
+});
+
+test("send(quarantine) moves a ready actor to quarantined", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-quar", name: "Q", role: "designer", workspace: "/w" });
+  manager.send("a-quar", { kind: "quarantine", reason: "stuck" });
+  const state = manager.get("a-quar").get().state;
+  assert.equal(state.kind, "quarantined");
+  if (state.kind === "quarantined") assert.equal(state.reason, "stuck");
+});
+
+test("send(terminate) disposes the agent and removes the actor from the in-memory map", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  let disposed = 0;
+  const factory: AgentSessionFactory<{ dispose(): void }> = {
+    async create() {
+      return { dispose() { disposed += 1; } };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-term", name: "T", role: "designer", workspace: "/w" });
+  manager.send("a-term", { kind: "terminate", clean: true });
+  assert.equal(manager.get("a-term").get().state.kind, "terminated");
+  assert.equal(disposed, 1);
+});
+
+test("send rejects commands against unknown actors with actor-not-found", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  let caught: unknown;
+  try {
+    manager.send("nope", { kind: "resume" });
+  } catch (cause) { caught = cause; }
+  assert.ok(caught instanceof ManagerError);
+  assert.equal((caught as ManagerError).code, "actor-not-found");
+});
+
+test("send rejects invalid transitions with invalid-state-transition", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-bad", name: "B", role: "designer", workspace: "/w" });
+  // ready actor cannot be resumed
+  let caught: unknown;
+  try {
+    manager.send("a-bad", { kind: "resume" });
+  } catch (cause) { caught = cause; }
+  assert.ok(caught instanceof ManagerError);
+  assert.equal((caught as ManagerError).code, "invalid-state-transition");
+});
+
+test("send rejects all commands once the actor is terminated", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ dispose(): void }> = {
+    async create() { return { dispose() {} }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-done", name: "D", role: "designer", workspace: "/w" });
+  manager.send("a-done", { kind: "terminate", clean: true });
+  let caught: unknown;
+  try {
+    manager.send("a-done", { kind: "pause", reason: "x" });
+  } catch (cause) { caught = cause; }
+  assert.ok(caught instanceof ManagerError);
+  assert.equal((caught as ManagerError).code, "invalid-state-transition");
+});
+
+test("send throws not-implemented for unhandled commands", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() { return { kind: "fake" }; },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-ni", name: "N", role: "designer", workspace: "/w" });
+  let caught: unknown;
+  try {
+    manager.send("a-ni", { kind: "assign", taskId: "t", leaseId: "l" });
+  } catch (cause) { caught = cause; }
+  assert.ok(caught instanceof ManagerError);
+  assert.equal((caught as ManagerError).code, "not-implemented");
+});

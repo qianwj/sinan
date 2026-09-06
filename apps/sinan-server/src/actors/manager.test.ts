@@ -166,3 +166,289 @@ test("dispose releases active agents, is idempotent, and rejects new actors", as
     /ActorManager is disposed/,
   );
 });
+
+test("get returns the persisted view including the latest event timestamp", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({
+    id: "actor-view",
+    name: "View",
+    role: "qa_engineer",
+    workspace: "/work/project",
+  });
+
+  const view = manager.get("actor-view").orElseThrow();
+  assert.equal(view.id, "actor-view");
+  assert.equal(view.config.name, "View");
+  assert.equal(view.state.kind, "ready");
+  assert.ok(view.lastEventAt !== null);
+  assert.equal(manager.get("does-not-exist").isPresent(), false);
+});
+
+test("list returns summaries for every persisted actor and supports filters", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-1", name: "A", role: "designer", workspace: "/w" });
+  await manager.create({ id: "a-2", name: "B", role: "designer", workspace: "/w" });
+  await manager.create({ id: "a-3", name: "C", role: "product_manager", workspace: "/other" });
+
+  assert.deepEqual(
+    manager.list().map((s) => s.id).sort(),
+    ["a-1", "a-2", "a-3"],
+  );
+  assert.deepEqual(
+    manager.list({ role: "designer" }).map((s) => s.id).sort(),
+    ["a-1", "a-2"],
+  );
+  assert.deepEqual(
+    manager.list({ stateKind: "ready" }).map((s) => s.id).sort(),
+    ["a-1", "a-2", "a-3"],
+  );
+  assert.deepEqual(
+    manager.list({ workspace: "/other" }).map((s) => s.id),
+    ["a-3"],
+  );
+});
+
+test("eventsOf returns events in order with the configured cap", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-events", name: "E", role: "designer", workspace: "/w" });
+
+  const all = manager.eventsOf("a-events");
+  assert.equal(all.length, 2);
+  assert.deepEqual(all.map((e) => e.kind), ["state-changed", "state-changed"]);
+
+  const afterFirst = manager.eventsOf("a-events", 1);
+  assert.equal(afterFirst.length, 1);
+  assert.equal(afterFirst[0]?.kind, "state-changed");
+
+  const limited = manager.eventsOf("a-events", 0, 1);
+  assert.equal(limited.length, 1);
+
+  assert.equal(manager.eventsOf("does-not-exist").length, 0);
+});
+
+test("reload returns an empty report when the database is empty", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+
+  const report = await manager.reload();
+  assert.deepEqual(report, {
+    resumed: [],
+    quarantined: [],
+    orphans: [],
+    missingConfigs: [],
+  });
+});
+
+test("reload resumes a ready actor and records a recovery event", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  let factoryCalls = 0;
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      factoryCalls += 1;
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-ready", name: "Ready", role: "designer", workspace: "/w" });
+  // Simulate a server restart by throwing away the in-memory projection and
+  // building a fresh manager on the same database.
+  factoryCalls = 0;
+  const restarted = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  const report = await restarted.reload();
+  assert.deepEqual(report.resumed, ["a-ready"]);
+  assert.deepEqual(report.quarantined, []);
+  assert.equal(factoryCalls, 1);
+
+  const last = database.get<{ event_json: string }>(
+    "SELECT event_json FROM actor_event WHERE actor_id = ? ORDER BY sequence DESC LIMIT 1",
+    "a-ready",
+  ).orElseThrow();
+  const payload = JSON.parse(last.event_json) as { to: { kind: string }; cause: { kind: string } };
+  assert.equal(payload.to.kind, "ready");
+  assert.equal(payload.cause.kind, "recovery");
+});
+
+test("reload quarantines non-ready actors and does not reactivate them", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  let factoryCalls = 0;
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      factoryCalls += 1;
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-paused", name: "Paused", role: "designer", workspace: "/w" });
+  writeState(database, "a-paused", { kind: "paused", reason: "user", since: Date.now() });
+  await manager.create({ id: "a-failed", name: "Failed", role: "designer", workspace: "/w" });
+  writeState(database, "a-failed", {
+    kind: "failed",
+    error: { category: "transient", message: "boom", diagnostic: null },
+    since: Date.now(),
+  });
+  await manager.create({ id: "a-done", name: "Done", role: "designer", workspace: "/w" });
+  writeState(database, "a-done", { kind: "terminated", clean: true, at: Date.now() });
+
+  factoryCalls = 0;
+  const report = await manager.reload();
+  assert.deepEqual(report.resumed, []);
+  assert.equal(factoryCalls, 0);
+  const ids = report.quarantined.map((q) => q.id).sort();
+  assert.deepEqual(ids, ["a-failed", "a-paused"]);
+  assert.equal(
+    report.quarantined.find((q) => q.id === "a-paused")?.reason,
+    "user-paused on restart",
+  );
+  assert.ok(
+    report.quarantined.find((q) => q.id === "a-failed")?.reason?.startsWith("previously failed:"),
+  );
+});
+
+test("reload surfaces orphan events and configs without events", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+
+  // An orphan event whose actor_id has no matching config.
+  database.run(
+    `INSERT INTO actor_event (actor_id, sequence, event_id, event_json, created_at)
+     VALUES (?, 1, ?, ?, ?)`,
+    "orphan-id",
+    "evt-orphan",
+    JSON.stringify({
+      kind: "state-changed",
+      from: { kind: "created" },
+      to: { kind: "ready" },
+      at: Date.now(),
+      cause: { kind: "recovery" },
+    }),
+    Date.now(),
+  );
+  // A config with no events at all.
+  database.run(
+    `INSERT INTO actor_config (id, config_json, state_kind, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    "missing-events",
+    JSON.stringify({
+      id: "missing-events",
+      name: "Lost",
+      role: "designer",
+      workspace: "/w",
+      sessionFile: "/tmp/x",
+      tools: [],
+      promptTemplateRef: "default",
+      limits: {
+        maxWallClockMs: 1,
+        maxConcurrentTasks: 1,
+        maxMemoryMb: null,
+        maxTokensPerHour: null,
+      },
+      createdAt: Date.now(),
+    }),
+    "ready",
+    Date.now(),
+    Date.now(),
+  );
+
+  const report = await manager.reload();
+  assert.deepEqual(report.orphans, ["orphan-id"]);
+  assert.deepEqual(report.missingConfigs, ["missing-events"]);
+});
+
+/**
+ * Writes a state-changed event for an existing actor and updates the
+ * `state_kind` cache so subsequent reads return the desired state. Used to
+ * set up recovery scenarios that the public `create` flow does not produce.
+ */
+function writeState(
+  database: Database,
+  actorId: string,
+  to: { kind: string } & Record<string, unknown>,
+): void {
+  const at = Date.now();
+  const prev = databaseLastState(database, actorId);
+  const nextSequence = database
+    .get<{ next: number }>(
+      "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM actor_event WHERE actor_id = ?",
+      actorId,
+    )
+    .orElseThrow().next;
+  database.run(
+    `INSERT INTO actor_event (actor_id, sequence, event_id, event_json, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    actorId,
+    nextSequence,
+    `evt-${nextSequence}-${actorId}`,
+    JSON.stringify({ kind: "state-changed", from: prev, to, at, cause: { kind: "recovery" } }),
+    at,
+  );
+  database.run(
+    "UPDATE actor_config SET state_kind = ?, updated_at = ? WHERE id = ?",
+    to.kind,
+    at,
+    actorId,
+  );
+}
+
+function databaseLastState(
+  database: Database,
+  actorId: string,
+): { kind: string } & Record<string, unknown> {
+  const row = database
+    .get<{ event_json: string }>(
+      "SELECT event_json FROM actor_event WHERE actor_id = ? ORDER BY sequence DESC LIMIT 1",
+      actorId,
+    )
+    .orElseThrow();
+  return JSON.parse(row.event_json).to as { kind: string } & Record<string, unknown>;
+}

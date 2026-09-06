@@ -47,6 +47,7 @@ function buildConfig(id: ActorId, overrides: Partial<ActorConfig> = {}): ActorCo
             maxMemoryMb: null,
             maxTokensPerHour: null,
         },
+        policy: { kind: "never" },
         createdAt: 1_700_000_000_000,
         ...overrides,
     };
@@ -238,4 +239,118 @@ test("ActorEventRepository.findOrphanActorIds excludes configured actors", () =>
         events.findOrphanActorIds(new Set()).sort(),
         ["a-1", "orphan"],
     );
+});
+
+test("ActorConfigRepository.findAllViews returns config + latest state + timestamp", () => {
+    using database = new Database(":memory:");
+    database.exec(ACTOR_SCHEMA);
+    const configs = new ActorConfigRepository(database);
+    const events = new ActorEventRepository(database);
+
+    configs.create(buildConfig("a-1"), { kind: "ready" }, 1_000);
+    configs.create(buildConfig("a-2", { role: "qa_engineer" }), { kind: "ready" }, 2_000);
+    events.recordStateChanged("a-1", { kind: "created" }, { kind: "ready" }, { kind: "command", command: "init" }, 1_100);
+    events.recordStateChanged("a-2", { kind: "created" }, { kind: "ready" }, { kind: "command", command: "init" }, 2_100);
+    events.recordStateChanged(
+        "a-2",
+        { kind: "ready" },
+        { kind: "paused", reason: "user", since: 2_200 },
+        { kind: "command", command: "pause" },
+        2_200,
+    );
+
+    const all = configs.findAllViews();
+    assert.equal(all.length, 2);
+    const byId = Object.fromEntries(all.map((v) => [v.id, v]));
+    assert.equal(byId["a-1"]?.config.name, "name-a-1");
+    assert.equal(byId["a-1"]?.state.kind, "ready");
+    assert.equal(byId["a-1"]?.lastEventAt, 1_100);
+    assert.equal(byId["a-1"]?.config.policy.kind, "never");
+    assert.equal(byId["a-2"]?.state.kind, "paused");
+    assert.equal(byId["a-2"]?.lastEventAt, 2_200);
+});
+
+test("ActorConfigRepository.findAllViews applies role / stateKind / workspace filters", () => {
+    using database = new Database(":memory:");
+    database.exec(ACTOR_SCHEMA);
+    const configs = new ActorConfigRepository(database);
+    const events = new ActorEventRepository(database);
+
+    configs.create(buildConfig("a-1"), { kind: "ready" }, 1_000);
+    configs.create(buildConfig("a-2", { role: "qa_engineer" }), { kind: "ready" }, 2_000);
+    configs.create(buildConfig("a-3", { workspace: "/other" }), { kind: "ready" }, 3_000);
+    for (const id of ["a-1", "a-2", "a-3"]) {
+        events.recordStateChanged(id, { kind: "created" }, { kind: "ready" }, { kind: "command", command: "init" }, 1_000);
+    }
+
+    assert.deepEqual(
+        configs.findAllViews({ role: "qa_engineer" }).map((v) => v.id),
+        ["a-2"],
+    );
+    assert.deepEqual(
+        configs.findAllViews({ workspace: "/other" }).map((v) => v.id),
+        ["a-3"],
+    );
+});
+
+test("ActorConfigRepository.findAllViews excludes configs with no events", () => {
+    using database = new Database(":memory:");
+    database.exec(ACTOR_SCHEMA);
+    const configs = new ActorConfigRepository(database);
+
+    configs.create(buildConfig("a-1"), { kind: "ready" }, 1_000);
+    configs.create(buildConfig("a-2"), { kind: "ready" }, 2_000);
+
+    // Only a-1 has an event; a-2 should be excluded.
+    database.run(
+        `INSERT INTO actor_event (actor_id, sequence, event_id, event_json, created_at)
+         VALUES (?, 1, ?, ?, ?)`,
+        "a-1",
+        "evt-1",
+        JSON.stringify({
+            kind: "state-changed",
+            from: { kind: "created" },
+            to: { kind: "ready" },
+            at: 1_000,
+            cause: { kind: "command", command: "init" },
+        }),
+        1_000,
+    );
+    const views = configs.findAllViews();
+    assert.equal(views.length, 1);
+    assert.equal(views[0]?.id, "a-1");
+});
+
+test("parseConfigRow defaults policy for legacy rows written before the field existed", () => {
+    using database = new Database(":memory:");
+    database.exec(ACTOR_SCHEMA);
+    const configs = new ActorConfigRepository(database);
+
+    database.run(
+        `INSERT INTO actor_config (id, config_json, state_kind, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        "legacy",
+        JSON.stringify({
+            id: "legacy",
+            name: "Old",
+            role: "designer",
+            workspace: "/w",
+            sessionFile: "/tmp/x",
+            tools: [],
+            promptTemplateRef: "default",
+            limits: {
+                maxWallClockMs: 1,
+                maxConcurrentTasks: 1,
+                maxMemoryMb: null,
+                maxTokensPerHour: null,
+            },
+            // no `policy` field
+            createdAt: 1_000,
+        }),
+        "ready",
+        1_000,
+        1_000,
+    );
+    const view = configs.findById("legacy").orElseThrow();
+    assert.deepEqual(view.policy, { kind: "never" });
 });

@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { Optional } from "sinan-core";
 import type { Database, SqlNamedParameters } from "./database.js";
-import type {
-    ActorConfig,
-    ActorEvent,
-    ActorId,
-    ActorState,
-    ActorStateKind,
-    ActorSummary,
-    EventCause,
-    EventSequence,
-    Timestamp,
+import {
+    DEFAULT_RESTART_POLICY,
+    type ActorConfig,
+    type ActorEvent,
+    type ActorId,
+    type ActorState,
+    type ActorStateKind,
+    type ActorSummary,
+    type ActorView,
+    type EventCause,
+    type EventSequence,
+    type Timestamp,
 } from "../actors/index.js";
 
 /**
@@ -144,6 +146,68 @@ export class ActorConfigRepository {
             lastEventAt: row.last_event_at,
             workspace: row.workspace,
         }));
+    }
+
+    /**
+     * Returns a full `ActorView` for every persisted actor that matches
+     * `filter`, with the latest state and event timestamp joined in. Inner
+     * joins on `actor_event` so configs that have no events (the
+     * missingConfigs case in §8.5) are excluded — those have no recoverable
+     * state to surface. `policy` is normalized to `DEFAULT_RESTART_POLICY`
+     * for legacy rows that predate the field.
+     */
+    public findAllViews(
+        filter: { role?: string; stateKind?: string; workspace?: string } = {},
+    ): ActorView[] {
+        const where: string[] = [];
+        const params: Array<string | number> = [];
+        if (filter.role !== undefined) {
+            where.push("json_extract(c.config_json, '$.role') = ?");
+            params.push(filter.role);
+        }
+        if (filter.stateKind !== undefined) {
+            where.push("c.state_kind = ?");
+            params.push(filter.stateKind);
+        }
+        if (filter.workspace !== undefined) {
+            where.push("json_extract(c.config_json, '$.workspace') = ?");
+            params.push(filter.workspace);
+        }
+        const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+        const sql = `
+            SELECT c.id,
+                   c.config_json,
+                   e.event_json AS last_event_json,
+                   e.created_at AS last_event_at
+            FROM actor_config c
+            JOIN actor_event e
+              ON e.actor_id = c.id
+             AND e.sequence = (SELECT MAX(sequence) FROM actor_event WHERE actor_id = c.id)
+            ${whereClause}
+            ORDER BY c.created_at ASC
+        `;
+        type ViewRow = {
+            id: string;
+            config_json: string;
+            last_event_json: string;
+            last_event_at: number;
+        };
+        return this.database.all<ViewRow>(sql, ...params).map((row) => {
+            const config = parseConfigRow({
+                id: row.id,
+                config_json: row.config_json,
+                state_kind: "",
+                created_at: 0,
+                updated_at: 0,
+            });
+            const event = JSON.parse(row.last_event_json) as { to: ActorState };
+            return {
+                id: row.id,
+                config,
+                state: event.to,
+                lastEventAt: row.last_event_at,
+            };
+        });
     }
 }
 
@@ -283,15 +347,20 @@ export class ActorEventRepository {
 
 /** Parses an `actor_config` row into the typed `ActorConfig` stored in JSON. */
 function parseConfigRow(row: ActorConfigRow): ActorConfig {
-    const config = JSON.parse(row.config_json) as ActorConfig;
+    const parsed = JSON.parse(row.config_json) as ActorConfig;
     // `config_json` is written by `create` and never mutated; assert the column
     // matches the JSON id to catch silent corruption early.
-    if (config.id !== row.id) {
+    if (parsed.id !== row.id) {
         throw new Error(
-            `actor_config ${row.id} contains a config_json with mismatched id ${config.id}`,
+            `actor_config ${row.id} contains a config_json with mismatched id ${parsed.id}`,
         );
     }
-    return config;
+    // `policy` was added after the initial schema. Normalize missing values
+    // so callers always see a concrete `RestartPolicy` without conditionals.
+    if (parsed.policy === undefined) {
+        return { ...parsed, policy: DEFAULT_RESTART_POLICY };
+    }
+    return parsed;
 }
 
 /** Parses an `actor_event` row into the typed `ActorEvent` union. */

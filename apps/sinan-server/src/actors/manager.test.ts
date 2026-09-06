@@ -193,7 +193,7 @@ test("get returns the persisted view including the latest event timestamp", asyn
   assert.equal(manager.get("does-not-exist").isPresent(), false);
 });
 
-test("list returns summaries for every persisted actor and supports filters", async () => {
+test("list returns views with the latest state for every persisted actor and supports filters", async () => {
   using database = new Database(":memory:");
   database.exec(ACTOR_SCHEMA);
   const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
@@ -208,22 +208,69 @@ test("list returns summaries for every persisted actor and supports filters", as
   await manager.create({ id: "a-2", name: "B", role: "designer", workspace: "/w" });
   await manager.create({ id: "a-3", name: "C", role: "product_manager", workspace: "/other" });
 
+  const all = manager.list();
+  assert.deepEqual(all.map((v) => v.id).sort(), ["a-1", "a-2", "a-3"]);
+  for (const view of all) {
+    assert.equal(view.state.kind, "ready");
+    assert.ok(view.lastEventAt !== null);
+    assert.equal(view.config.policy.kind, "never");
+  }
+
   assert.deepEqual(
-    manager.list().map((s) => s.id).sort(),
-    ["a-1", "a-2", "a-3"],
-  );
-  assert.deepEqual(
-    manager.list({ role: "designer" }).map((s) => s.id).sort(),
+    manager.list({ role: "designer" }).map((v) => v.id).sort(),
     ["a-1", "a-2"],
   );
   assert.deepEqual(
-    manager.list({ stateKind: "ready" }).map((s) => s.id).sort(),
+    manager.list({ stateKind: "ready" }).map((v) => v.id).sort(),
     ["a-1", "a-2", "a-3"],
   );
   assert.deepEqual(
-    manager.list({ workspace: "/other" }).map((s) => s.id),
+    manager.list({ workspace: "/other" }).map((v) => v.id),
     ["a-3"],
   );
+});
+
+test("create persists a custom policy and reads it back through get and list", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({
+    id: "a-policy",
+    name: "P",
+    role: "designer",
+    workspace: "/w",
+    policy: { kind: "on-failure-with-backoff", maxRetries: 3, backoffMs: 1_000, jitter: true },
+  });
+
+  assert.deepEqual(manager.get("a-policy").get().config.policy, {
+    kind: "on-failure-with-backoff",
+    maxRetries: 3,
+    backoffMs: 1_000,
+    jitter: true,
+  });
+  assert.equal(manager.list()[0]?.config.policy.kind, "on-failure-with-backoff");
+});
+
+test("create defaults the policy to DEFAULT_RESTART_POLICY (never) when omitted", async () => {
+  using database = new Database(":memory:");
+  database.exec(ACTOR_SCHEMA);
+  const factory: AgentSessionFactory<{ readonly kind: "fake" }> = {
+    async create() {
+      return { kind: "fake" };
+    },
+  };
+  const manager = new ActorManager(database, factory, {
+    sessionDirectory: "/tmp/sinan-test-sessions",
+  });
+  await manager.create({ id: "a-default", name: "D", role: "designer", workspace: "/w" });
+  assert.deepEqual(manager.get("a-default").get().config.policy, { kind: "never" });
 });
 
 test("eventsOf returns events in order with the configured cap", async () => {

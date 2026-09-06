@@ -47,6 +47,35 @@ export interface ActorError {
 }
 
 /**
+ * Recovery policy attached to an actor. The policy is consulted by the
+ * supervisor when a runtime failure occurs and decides whether the actor
+ * should be restarted automatically or sent to quarantine for human review.
+ *
+ * - `never` — failures are sent to quarantine; no auto-restart.
+ * - `on-failure` — restart once on transient failure.
+ * - `on-failure-with-backoff` — restart up to `maxRetries` times, waiting
+ *   `backoffMs` between attempts (jittered when `jitter` is true).
+ *
+ * Note: `server-http-api.md` §4.1 shows a response example that mixes
+ * `kind: "on-failure"` with the `maxRetries` / `backoffMs` / `jitter`
+ * fields. Those fields belong on `on-failure-with-backoff` per the §7.1
+ * policy table. We follow §7.1 here and treat the §4.1 example as a
+ * documentation typo to be cleaned up in a future spec revision.
+ */
+export type RestartPolicy =
+  | { kind: "never" }
+  | { kind: "on-failure" }
+  | {
+      kind: "on-failure-with-backoff";
+      maxRetries: number;
+      backoffMs: number;
+      jitter: boolean;
+    };
+
+/** Safe default used when an actor is created without an explicit policy. */
+export const DEFAULT_RESTART_POLICY: RestartPolicy = { kind: "never" };
+
+/**
  * Runtime state.
  *
  * - `initializing` is a transient, in-memory state held only by
@@ -107,6 +136,14 @@ export interface ActorConfig {
   tools: readonly string[];
   promptTemplateRef: string;
   limits: ResourceLimits;
+  /**
+   * Recovery policy persisted alongside the rest of the static config. Stored
+   * in `actor_config.config_json` alongside the other fields; the column does
+   * not need a schema change. `ActorConfigRepository.parseConfigRow` defaults
+   * this to `DEFAULT_RESTART_POLICY` for rows written before the field
+   * existed, so callers always see a concrete value.
+   */
+  policy: RestartPolicy;
   createdAt: Timestamp;
 }
 
@@ -127,6 +164,8 @@ export interface CreateActorInput {
   tools?: readonly string[];
   promptTemplateRef?: string;
   limits?: Partial<ResourceLimits>;
+  /** Optional recovery policy. Defaults to `DEFAULT_RESTART_POLICY` (never). */
+  policy?: RestartPolicy;
 }
 
 /**

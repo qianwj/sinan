@@ -13,9 +13,9 @@ import {
     type ActorId,
     type ActorRole,
     type ActorState,
-    type ActorSummary,
     type ActorView,
     type CreateActorInput,
+    DEFAULT_RESTART_POLICY,
     type EventCause,
     type EventSequence,
     type RecoveryReport,
@@ -229,9 +229,9 @@ export class ActorManager<TAgent extends object = AgentSession> implements Dispo
             );
     }
 
-    /** Returns the persisted summary for every actor that matches `filter`. */
-    public list(filter: ActorFilter = {}): ActorSummary[] {
-        return this.configRepository.findAllSummaries(filter);
+    /** Returns the persisted view for every actor that matches `filter`. */
+    public list(filter: ActorFilter = {}): ActorView[] {
+        return this.configRepository.findAllViews(filter);
     }
 
     /**
@@ -407,6 +407,7 @@ function buildConfig(input: CreateActorInput, sessionDirectory: string): ActorCo
         tools,
         promptTemplateRef,
         limits,
+        policy: input.policy ?? DEFAULT_RESTART_POLICY,
         createdAt: Date.now(),
     };
 }

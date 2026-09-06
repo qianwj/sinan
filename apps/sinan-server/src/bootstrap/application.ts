@@ -7,6 +7,7 @@ import {
     EventStreamHandler,
     HealthRoutes,
     HttpServer,
+    IdempotencyStore,
     Router,
 } from "../http/index.js";
 
@@ -16,15 +17,17 @@ export class Application {
     private readonly database: Database;
     private readonly actorManager: ActorManager;
     private readonly httpServer: HttpServer;
+    private readonly idempotency: IdempotencyStore;
 
     constructor() {
         this.database = new Database();
         this.actorManager = new ActorManager(this.database);
+        this.idempotency = new IdempotencyStore();
 
         const router = new Router(
             [
-                ...new ActorRoutes(this.actorManager).routes,
-                ...new HealthRoutes().routes,
+                ...new ActorRoutes(this.actorManager, this.idempotency).routes,
+                ...new HealthRoutes(this.actorManager).routes,
                 ...new EventStreamHandler().routes,
             ],
             new ErrorMapper(),

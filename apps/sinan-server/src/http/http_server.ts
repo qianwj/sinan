@@ -14,13 +14,13 @@ export class HttpServer implements Disposable {
     private static readonly DEFAULT_PORT = 7070;
 
     private server: Server | undefined;
-    private readonly port: number;
+    private readonly configuredPort: number;
 
     public constructor(
         private readonly router: Router,
         port?: number,
     ) {
-        this.port = port ?? HttpServer.resolvePort();
+        this.configuredPort = port ?? HttpServer.resolvePort();
     }
 
     public async start(): Promise<void> {
@@ -46,14 +46,14 @@ export class HttpServer implements Disposable {
                 const address = server.address();
                 const boundPort = address !== null && typeof address === "object"
                     ? address.port
-                    : this.port;
+                    : this.configuredPort;
                 // eslint-disable-next-line no-console
                 console.log(`http server listening on http://${HttpServer.HOST}:${boundPort}`);
                 resolve();
             };
             server.once("error", onError);
             server.once("listening", onListening);
-            server.listen(this.port, HttpServer.HOST);
+            server.listen(this.configuredPort, HttpServer.HOST);
         });
     }
 
@@ -70,6 +70,22 @@ export class HttpServer implements Disposable {
                 }
             });
         });
+    }
+
+    /**
+     * Returns the actual bound port. When the constructor was called with
+     * `port: 0` the OS assigned an ephemeral port; reading it back requires
+     * a getter so tests and tools can address the running server.
+     */
+    public get port(): number {
+        if (this.server === undefined) {
+            throw new Error("HttpServer is not started");
+        }
+        const address = this.server.address();
+        if (address === null || typeof address !== "object") {
+            throw new Error("HttpServer is not bound to a port");
+        }
+        return address.port;
     }
 
     public [Symbol.dispose](): void {

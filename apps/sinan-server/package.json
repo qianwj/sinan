@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx --env-file=.env.local src/main.ts",
-    "test": "node --import tsx --test src/persistence/*.test.ts src/actors/*.test.ts"
+    "test": "node --import tsx --test src/persistence/*.test.ts src/actors/*.test.ts src/http/*.test.ts"
   },
   "keywords": [],
   "author": "qianwj",

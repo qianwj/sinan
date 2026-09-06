@@ -3,9 +3,10 @@
     import { goto } from "$app/navigation";
 
     /**
-     * Root URL redirects to the office. The SvelteKit router is
-     * client-side; this runs in `onMount` to avoid SSR (the office is a
-     * pure SPA per `+layout.ts`).
+     * Root URL redirects to `/office`. The SvelteKit router is
+     * client-side, so the redirect happens in `onMount` after the
+     * page has mounted; this avoids any SSR attempt and keeps the
+     * shell a pure SPA (per `+layout.ts`).
      */
     onMount(() => {
         void goto("/office", { replaceState: true });

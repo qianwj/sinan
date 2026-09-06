@@ -3,16 +3,22 @@
 /**
  * Theme tokens for the office SPA.
  *
- * The `@theme` directive (Tailwind v4) registers every token below as a
- * CSS variable AND a Tailwind utility class. Components reference the
- * semantic / role / status layers only — palette tokens are reserved
- * for `app.css` itself.
+ * Per `docs/web-visual-language.md` v0.3 §4, the `@theme` directive
+ * (Tailwind v4) registers every token as a CSS variable AND a Tailwind
+ * utility class. Components reference the semantic / role / status
+ * layers only — `palette` is reserved for `app.css` itself so the
+ * placeholder palette can be swapped for a real brand palette without
+ * touching component code (§4.1: "业务代码只引用 semantic / component
+ * / utility，永远不直接引用 palette").
  *
- * Aligned with `docs/web-visual-language.md` v0.3 and the office layout
- * in `web-agent-office.md` §5.
+ * Layered naming:
+ *   palette-*         raw color scale (slate placeholder, §4.2)
+ *   canvas / surface  page background layers (§4.5)
+ *   status-* / role-* section & identity colors
+ *   fg-* / divider    utility text + border tokens
  */
 @theme {
-  /* —— palette (raw scale; semantic / role layers reference these) —— */
+  /* —— palette (raw scale; semantic layers reference these) —— */
   --color-palette-slate-50: #f8fafc;
   --color-palette-slate-100: #f1f5f9;
   --color-palette-slate-200: #e2e8f0;
@@ -25,19 +31,21 @@
   --color-palette-slate-900: #0f172a;
   --color-palette-slate-950: #020617;
 
-  /* —— canvas / surface —— */
+  /* —— canvas / surface (page background layers) —— */
   --color-canvas: #f6f7f9;
   --color-canvas-deep: #0b1220;
   --color-surface-1: #ffffff;
   --color-surface-2: #f1f5f9;
   --color-surface-3: #e9eef5;
+
+  /* —— text & utility —— */
   --color-fg: #0b1220;
   --color-fg-muted: #475569;
   --color-fg-subtle: #94a3b8;
   --color-divider: #e2e8f0;
   --color-border-strong: #cbd5e1;
 
-  /* —— status (state-changed colors) —— */
+  /* —— status (per §6.1: state color = blocking-semantics function) —— */
   --color-status-ready: #16a34a;
   --color-status-running: #2563eb;
   --color-status-paused: #d97706;
@@ -46,7 +54,7 @@
   --color-status-quarantined: #7c3aed;
   --color-status-terminated: #94a3b8;
 
-  /* —— status tints (for card backgrounds) —— */
+  /* —— status tints (low-saturation card backgrounds) —— */
   --color-status-ready-tint: #ecfdf5;
   --color-status-running-tint: #eff6ff;
   --color-status-paused-tint: #fffbeb;
@@ -55,25 +63,25 @@
   --color-status-quarantined-tint: #faf5ff;
   --color-status-terminated-tint: #f1f5f9;
 
-  /* —— role identity (per §5.3) —— */
+  /* —— role identity (per §5.3: identity color is role-driven) —— */
   --color-role-pm: #3b82f6;
   --color-role-designer: #ec4899;
   --color-role-developer: #10b981;
   --color-role-qa: #d97706;
   --color-role-devops: #8b5cf6;
 
-  /* —— section accents (the colored bar on the left of each group) —— */
+  /* —— section accents (the colored rail on the left of each group) —— */
   --color-section-attention: #dc2626;
   --color-section-working: #2563eb;
   --color-section-idle: #94a3b8;
   --color-section-archive: #cbd5e1;
 
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
-    monospace;
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 html,

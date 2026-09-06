@@ -1,19 +1,26 @@
 <script lang="ts">
-    import type { ActorView, ActorState } from "sinan-core";
+    import type { ActorState, ActorView } from "sinan-core";
     import WorkstationCard from "./WorkstationCard.svelte";
 
     /**
-     * Office view layout (web-agent-office.md §5.2).
+     * Office workstation grouping per `web-agent-office.md` §5.2.
      *
-     *   需介入    — failed, quarantined, paused
-     *   正在工作  — running
-     *   待命中    — ready, created, restarting
-     *   归档      — terminated (collapsed archive drawer)
+     *   Needs attention — failed, quarantined, paused
+     *   Working         — running
+     *   Idle            — ready, created, restarting
+     *   Archive         — terminated (collapsed drawer)
      *
-     * Each section is a self-contained "zone" with its own left
-     * accent rail and a header that names the section + carries a
-     * count. The grouping is a semantic projection of
-     * `ActorState.kind`, not a UI sort preference.
+     * This grouping is a *semantic projection* of `ActorState.kind`, not
+     * a UI sort preference — the same actors will land in the same
+     * group across reloads, devices, and users. `paused` is uniformly
+     * "needs attention" in the prototype because the wire shape does
+     * not yet distinguish user-pause from system-pause; that split
+     * arrives when the decision module lands (§6.1's two `paused`
+     * weights).
+     *
+     * Sections are rendered in fixed attention order (highest first)
+     * so the user can answer "do I need to act now?" without scanning
+     * the page top-to-bottom.
      */
     let { views }: { views: readonly ActorView[] } = $props();
 
@@ -25,11 +32,19 @@
     let archiveOpen = $state(false);
 
     function isNeedsAttention(state: ActorState): boolean {
-        return state.kind === "failed" || state.kind === "quarantined" || state.kind === "paused";
+        return (
+            state.kind === "failed" ||
+            state.kind === "quarantined" ||
+            state.kind === "paused"
+        );
     }
 
     function isIdle(state: ActorState): boolean {
-        return state.kind === "ready" || state.kind === "created" || state.kind === "restarting";
+        return (
+            state.kind === "ready" ||
+            state.kind === "created" ||
+            state.kind === "restarting"
+        );
     }
 </script>
 
@@ -38,10 +53,13 @@
         <section
             data-section="needs-attention"
             class="relative rounded-2xl border border-status-failed/30 bg-status-failed-tint/40 p-5 shadow-sm"
+            aria-labelledby="section-needs-attention"
         >
             <header class="flex items-center gap-3">
-                <div class="h-6 w-1 bg-status-failed rounded-full" aria-hidden="true"></div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Needs attention</h2>
+                <div class="h-6 w-1 rounded-full bg-section-attention" aria-hidden="true"></div>
+                <h2 id="section-needs-attention" class="text-sm font-semibold uppercase tracking-wider text-fg">
+                    Needs attention
+                </h2>
                 <span class="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-xs text-fg-muted">
                     {needsAttention.length}
                 </span>
@@ -59,10 +77,13 @@
         <section
             data-section="working"
             class="relative rounded-2xl border border-status-running/20 bg-status-running-tint/40 p-5 shadow-sm"
+            aria-labelledby="section-working"
         >
             <header class="flex items-center gap-3">
-                <div class="h-6 w-1 bg-status-running rounded-full" aria-hidden="true"></div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Working</h2>
+                <div class="h-6 w-1 rounded-full bg-section-working" aria-hidden="true"></div>
+                <h2 id="section-working" class="text-sm font-semibold uppercase tracking-wider text-fg">
+                    Working
+                </h2>
                 <span class="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-xs text-fg-muted">
                     {working.length}
                 </span>
@@ -80,10 +101,13 @@
         <section
             data-section="idle"
             class="relative rounded-2xl border border-divider bg-surface-1 p-5 shadow-sm"
+            aria-labelledby="section-idle"
         >
             <header class="flex items-center gap-3">
-                <div class="h-6 w-1 bg-section-idle rounded-full" aria-hidden="true"></div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Idle</h2>
+                <div class="h-6 w-1 rounded-full bg-section-idle" aria-hidden="true"></div>
+                <h2 id="section-idle" class="text-sm font-semibold uppercase tracking-wider text-fg">
+                    Idle
+                </h2>
                 <span class="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-xs text-fg-muted">
                     {idle.length}
                 </span>
@@ -101,16 +125,20 @@
         <section
             data-section="archive"
             class="relative rounded-2xl border border-dashed border-divider bg-surface-2/40 p-5"
+            aria-labelledby="section-archive"
         >
             <button
                 type="button"
                 class="flex w-full items-center justify-between gap-3 text-left"
                 aria-expanded={archiveOpen}
+                aria-controls="archive-body"
                 onclick={() => (archiveOpen = !archiveOpen)}
             >
                 <header class="flex items-center gap-3">
-                    <div class="h-6 w-1 bg-section-archive rounded-full" aria-hidden="true"></div>
-                    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Archive</h2>
+                    <div class="h-6 w-1 rounded-full bg-section-archive" aria-hidden="true"></div>
+                    <h2 id="section-archive" class="text-sm font-semibold uppercase tracking-wider text-fg">
+                        Archive
+                    </h2>
                     <span class="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-xs text-fg-muted">
                         {archived.length}
                     </span>
@@ -121,7 +149,10 @@
                 </span>
             </button>
             {#if archiveOpen}
-                <div class="mt-5 grid grid-cols-1 gap-4 opacity-80 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                <div
+                    id="archive-body"
+                    class="mt-5 grid grid-cols-1 gap-4 opacity-80 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+                >
                     {#each archived as view (view.id)}
                         <WorkstationCard {view} />
                     {/each}

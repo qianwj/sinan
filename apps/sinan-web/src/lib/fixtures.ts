@@ -1,37 +1,13 @@
 import type {
+    ActorConfig,
     ActorId,
     ActorView,
-    ActorConfig,
+    ActorRole,
+    ResourceLimits,
     RestartPolicy,
     TaskId,
     Timestamp,
 } from "sinan-core";
-
-/**
- * Mock task metadata used by the running actor card. The wire shape
- * matches what `manager.get(id).state` carries today (`taskId`) plus
- * the human-readable title the office surfaces per
- * `web-agent-office.md` §5.1 ("current task = taskId + one-line goal").
- * When the task module lands the office will fetch this from a real
- * endpoint and the `taskTitles` lookup disappears.
- */
-interface TaskSummary {
-    readonly title: string;
-    readonly requirement: string | null;
-}
-
-const taskTitles: Record<TaskId, TaskSummary> = {
-    "task-1": { title: "Implement auth middleware", requirement: "REQ-AUTH-02" },
-};
-
-/**
- * Lookup a task by id. Returns `null` when the id is not in the mock
- * catalog (e.g. the running actor references a task the demo does not
- * know about). Components degrade gracefully to "id only".
- */
-export function lookupTask(taskId: TaskId): TaskSummary | null {
-    return taskTitles[taskId] ?? null;
-}
 
 /**
  * Mock actor projections served by the Vite mock plugin at `/api/actors`.
@@ -39,12 +15,18 @@ export function lookupTask(taskId: TaskId): TaskSummary | null {
  * `GET /api/actors` once it is wired up — the web components consume
  * this directly without translation.
  *
- * The set covers every state kind from the §3.2 union, so the office
- * renders the full visual vocabulary on first load:
+ * The set covers every `ActorStateKind` from the runtime's state
+ * machine so the office renders the full visual vocabulary on first
+ * load:
+ *
  *   ready × 2, running × 1, paused × 1, failed × 1,
- *   quarantined × 1, restarting × 1, terminated × 1
+ *   restarting × 1, quarantined × 1, terminated × 1
+ *
+ * The running actor carries a `taskId`. Its one-line goal comes from
+ * the task module (out of scope for the prototype) — the card
+ * currently surfaces only the taskId until that module is wired in.
  */
-export const officeFixtures: ActorView[] = [
+export const officeFixtures: readonly ActorView[] = [
     {
         id: "actor-pm",
         config: fixtureConfig({
@@ -53,10 +35,10 @@ export const officeFixtures: ActorView[] = [
             role: "product_manager",
             workspace: "/work/sinan/roadmap",
             policy: { kind: "always", backoffMs: 2_000, jitter: true },
-            lastEventAt: 1_716_300_000_000,
+            lastEventAt: ts(0),
         }),
         state: { kind: "ready" },
-        lastEventAt: 1_716_300_000_000,
+        lastEventAt: ts(0),
     },
     {
         id: "actor-designer",
@@ -66,10 +48,10 @@ export const officeFixtures: ActorView[] = [
             role: "designer",
             workspace: "/work/sinan/office",
             policy: { kind: "on-failure", maxRetries: 3, backoffMs: 1_000, jitter: true },
-            lastEventAt: 1_716_300_005_000,
+            lastEventAt: ts(5_000),
         }),
         state: { kind: "ready" },
-        lastEventAt: 1_716_300_005_000,
+        lastEventAt: ts(5_000),
     },
     {
         id: "actor-dev",
@@ -79,14 +61,14 @@ export const officeFixtures: ActorView[] = [
             role: "development_engineer",
             workspace: "/work/sinan/api",
             policy: { kind: "on-failure", maxRetries: 1, backoffMs: 5_000, jitter: false },
-            lastEventAt: 1_716_300_010_000,
+            lastEventAt: ts(10_000),
         }),
         state: {
             kind: "running",
             taskId: "task-1",
             leaseId: "lease-1",
         },
-        lastEventAt: 1_716_300_010_000,
+        lastEventAt: ts(10_000),
     },
     {
         id: "actor-qa",
@@ -96,14 +78,14 @@ export const officeFixtures: ActorView[] = [
             role: "qa_engineer",
             workspace: "/work/sinan/test",
             policy: { kind: "never" },
-            lastEventAt: 1_716_300_015_000,
+            lastEventAt: ts(15_000),
         }),
         state: {
             kind: "paused",
             reason: "waiting on bug fix",
-            since: 1_716_300_015_000,
+            since: ts(15_000),
         },
-        lastEventAt: 1_716_300_015_000,
+        lastEventAt: ts(15_000),
     },
     {
         id: "actor-devops",
@@ -113,14 +95,18 @@ export const officeFixtures: ActorView[] = [
             role: "devops_engineer",
             workspace: "/work/sinan/ci",
             policy: { kind: "on-failure", maxRetries: 2, backoffMs: 1_500, jitter: true },
-            lastEventAt: 1_716_300_020_000,
+            lastEventAt: ts(20_000),
         }),
         state: {
             kind: "failed",
-            error: { category: "transient", message: "compose pull failed", diagnostic: null },
-            since: 1_716_300_020_000,
+            error: {
+                category: "transient",
+                message: "compose pull failed",
+                diagnostic: null,
+            },
+            since: ts(20_000),
         },
-        lastEventAt: 1_716_300_020_000,
+        lastEventAt: ts(20_000),
     },
     {
         id: "actor-restarting",
@@ -130,10 +116,10 @@ export const officeFixtures: ActorView[] = [
             role: "development_engineer",
             workspace: "/work/sinan/worker",
             policy: { kind: "on-failure", maxRetries: 3, backoffMs: 1_000, jitter: true },
-            lastEventAt: 1_716_300_025_000,
+            lastEventAt: ts(25_000),
         }),
         state: { kind: "restarting", fromCheckpoint: null },
-        lastEventAt: 1_716_300_025_000,
+        lastEventAt: ts(25_000),
     },
     {
         id: "actor-quarantined",
@@ -143,14 +129,14 @@ export const officeFixtures: ActorView[] = [
             role: "development_engineer",
             workspace: "/work/sinan/legacy",
             policy: { kind: "never" },
-            lastEventAt: 1_716_300_030_000,
+            lastEventAt: ts(30_000),
         }),
         state: {
             kind: "quarantined",
             reason: "repeated lease failures; needs review",
-            since: 1_716_300_030_000,
+            since: ts(30_000),
         },
-        lastEventAt: 1_716_300_030_000,
+        lastEventAt: ts(30_000),
     },
     {
         id: "actor-done",
@@ -160,21 +146,28 @@ export const officeFixtures: ActorView[] = [
             role: "designer",
             workspace: "/work/sinan/branding",
             policy: { kind: "never" },
-            lastEventAt: 1_716_300_035_000,
+            lastEventAt: ts(35_000),
         }),
-        state: { kind: "terminated", clean: true, at: 1_716_300_035_000 },
-        lastEventAt: 1_716_300_035_000,
+        state: { kind: "terminated", clean: true, at: ts(35_000) },
+        lastEventAt: ts(35_000),
     },
 ];
 
 interface FixtureOverrides {
     id: ActorId;
     name: string;
-    role: ActorConfig["role"];
+    role: ActorRole;
     workspace: string;
     policy: RestartPolicy;
     lastEventAt: Timestamp;
 }
+
+const DEFAULT_LIMITS: ResourceLimits = {
+    maxWallClockMs: 3_600_000,
+    maxConcurrentTasks: 1,
+    maxMemoryMb: null,
+    maxTokensPerHour: null,
+};
 
 function fixtureConfig(o: FixtureOverrides): ActorConfig {
     return {
@@ -185,13 +178,17 @@ function fixtureConfig(o: FixtureOverrides): ActorConfig {
         sessionFile: `~/.sinan/actors/${o.id}/session.jsonl`,
         tools: [],
         promptTemplateRef: "default",
-        limits: {
-            maxWallClockMs: 3_600_000,
-            maxConcurrentTasks: 1,
-            maxMemoryMb: null,
-            maxTokensPerHour: null,
-        },
+        limits: DEFAULT_LIMITS,
         policy: o.policy,
         createdAt: o.lastEventAt - 60_000,
     };
 }
+
+/** Anchors the fixture timestamps in the recent past relative to "now"
+ *  so the `last event` meta is never "0s ago" or "1970" on first load. */
+function ts(offsetMs: number): Timestamp {
+    return Date.now() - 60_000 + offsetMs;
+}
+
+/** Convenience: a few well-known task ids the fixtures reference. */
+export type FixtureTaskId = TaskId;

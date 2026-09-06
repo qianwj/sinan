@@ -9,8 +9,9 @@ import { officeFixtures } from "../src/lib/fixtures.js";
  * real server or to this mock. When `sinan-server` lands, switch the
  * baseURL once and the office works unchanged.
  *
- * Scoped to `configureServer` (dev only) so production builds are not
- * affected — the static `build/` does not include this middleware.
+ * Scoped to `configureServer` (dev only) so production builds do not
+ * include this middleware. The static `build/` ships without these
+ * endpoints; the real `sinan-server` takes over in production.
  */
 export function mockApiPlugin(): Plugin {
     return {
@@ -30,14 +31,14 @@ export function mockApiPlugin(): Plugin {
                     next();
                     return;
                 }
-                const quarantined = officeFixtures.filter(
+                const quarantinedCount = officeFixtures.filter(
                     (view) => view.state.kind === "quarantined",
                 ).length;
                 sendJson(res, 200, {
                     status: "ok",
                     version: "0.0.0-mock",
                     actorCount: officeFixtures.length,
-                    quarantinedCount: quarantined,
+                    quarantinedCount,
                 });
             });
         },
@@ -46,8 +47,10 @@ export function mockApiPlugin(): Plugin {
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
     const text = JSON.stringify(body);
+    // `req` is only here to anchor the IncomingMessage import for type
+    // readers; it is not consumed.
     const req = res as ServerResponse & { req: IncomingMessage };
-    void req; // unused; the typing is here for clarity
+    void req;
     res.statusCode = status;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.end(text);

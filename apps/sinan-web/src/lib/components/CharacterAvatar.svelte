@@ -2,34 +2,34 @@
     import type { ActorRole, ActorState } from "sinan-core";
 
     /**
-     * Full-body geometric character + role prop, drawn in front of
-     * a desk surface (web-agent-office.md §D-05).
+     * Full-body geometric character + role prop, drawn in front of a
+     * desk surface. Implements `docs/web-agent-office.md` §D-05
+     * ("minimal anthropomorphism exception") in full.
      *
-     * Strict rules from D-05:
-     *   - 96x96 SVG, geometric only, no facial features, no fingers
+     * Strict D-05 rules this component respects:
+     *   - 96×96 SVG, geometric only. No facial features, no fingers
      *     (hands end in rounded sleeve cuffs), no shading, no 3D /
      *     perspective.
-     *   - The body never animates; only the role prop and the
-     *     surrounding status ring carry motion.
-     *   - Every animation is gated on `motion-safe:` so it is silently
-     *     dropped under `prefers-reduced-motion: reduce` (per §5.5 /
-     *     §6.2 / §11.1). With motion off, the prop is still drawn in
-     *     its state-appropriate "active" pose.
-     *   - The character does NOT carry state semantics; the badge +
-     *     stripe + text already do (§6.1). The character's only job is
-     *     to make the office metaphor palpable (§3.1) and to give the
-     *     prop a state-appropriate micro-cue.
+     *   - The body never animates. Only the role prop and the outer
+     *     status ring carry motion.
+     *   - Every animation is gated on Tailwind's `motion-safe:` so it
+     *     is silently dropped under `prefers-reduced-motion: reduce`.
+     *     The `<style>` block also overrides any animation under
+     *     reduced motion as a belt-and-braces guard.
+     *   - The character does NOT carry state semantics. The badge +
+     *     stripe + text on the parent card already do (§6.1). The
+     *     character's only job is to make the office metaphor palpable
+     *     (§3.1) and to give the prop a state-appropriate micro-cue.
      *
-     * Composition (in a 96x96 viewport):
+     * Composition (96×96 viewport):
      *   - Head:        circle (cx=48, cy=20, r=11)
      *   - Neck:        small rect (y=29-37)
-     *   - Shoulders + torso: trapezoid (y=36-78, shoulders at y=36-40)
-     *   - Arms:        two paths from shoulder to desk surface
-     *   - Desk:        horizontal band (y=78-96) covering lower body
-     *   - Prop:        drawn on top of the desk
-     *   - Status ring: r=46 around the whole figure, only painted for
-     *                 some states
-     *   - Corner badges: small !, lock, pause marks on the top-right
+     *   - Torso:       rounded trapezoid (y=36-78, shoulders at y=36-40)
+     *   - Arms:        two paths from shoulder down to the desk
+     *   - Desk band:   horizontal rect (y=78-96) covering the lower body
+     *   - Prop:        drawn on top of the desk (per role)
+     *   - Status ring: r=46 around the whole figure, only for some states
+     *   - Corner badge: small !, lock, or pause mark on the top-right
      */
     let {
         role,
@@ -42,13 +42,11 @@
     } = $props();
 
     const isRunning = $derived(state.kind === "running");
-    const isQuarantined = $derived(state.kind === "quarantined");
-    const isFailed = $derived(state.kind === "failed");
     const isPaused = $derived(state.kind === "paused");
+    const isFailed = $derived(state.kind === "failed");
+    const isQuarantined = $derived(state.kind === "quarantined");
     const isRestarting = $derived(state.kind === "restarting");
-    const isTerminated = $derived(state.kind === "terminated");
-    const isInactive = $derived(isTerminated);
-    const showOffDutyProp = $derived(isPaused || isTerminated);
+    const isInactive = $derived(state.kind === "terminated" || state.kind === "initializing");
 </script>
 
 <svg
@@ -60,8 +58,11 @@
     aria-hidden={title === undefined ? "true" : undefined}
     class="block"
     data-state={state.kind}
+    data-role={role}
 >
-    <!-- Status ring behind the character (failed / quarantined / restarting) -->
+    <!-- Status ring (failed / quarantined / restarting only).
+         D-05: only the ring carries state semantics motion; the body
+         itself is static. -->
     {#if isFailed || isQuarantined || isRestarting}
         <circle
             cx="48"
@@ -69,34 +70,34 @@
             r="46"
             fill="none"
             stroke-width="2"
-            class="{isFailed ? 'stroke-status-failed' : ''} {isQuarantined ? 'stroke-status-quarantined' : ''} {isRestarting ? 'stroke-status-restarting opacity-50' : ''} {(isFailed || isQuarantined) ? 'opacity-90' : ''} {isFailed || isQuarantined ? 'motion-safe:animate-[avatar-pulse_1.6s_ease-in-out_infinite]' : ''} {isRestarting ? 'motion-safe:animate-[avatar-spin_1.4s_linear_infinite]' : ''}"
+            class={isFailed
+                ? "stroke-status-failed motion-safe:animate-[avatar-pulse_1.6s_ease-in-out_infinite]"
+                : isQuarantined
+                  ? "stroke-status-quarantined motion-safe:animate-[avatar-pulse_1.6s_ease-in-out_infinite]"
+                  : "stroke-status-restarting opacity-50 motion-safe:animate-[avatar-spin_1.4s_linear_infinite]"}
             stroke-dasharray={isRestarting ? "6 6" : undefined}
         />
     {/if}
 
     <!--
-        Character body — drawn before the desk so the desk covers the
+        Character body. Drawn before the desk so the desk covers the
         lower body and the prop sits on the desk surface in front of
-        the character.
+        the character. `inactive` fades the whole figure when
+        terminated / initializing.
     -->
     <g class:inactive={isInactive}>
-        <!-- Head -->
         <circle cx="48" cy="20" r="11" fill="currentColor" opacity="0.95" />
-        <!-- Neck -->
         <rect x="44" y="29" width="8" height="9" fill="currentColor" opacity="0.85" />
-        <!-- Shoulders + torso: rounded trapezoid -->
         <path
             d="M 20 40 Q 20 36 26 36 L 70 36 Q 76 36 76 40 L 72 80 L 24 80 Z"
             fill="currentColor"
             opacity="0.78"
         />
-        <!-- Left arm -->
         <path
             d="M 20 40 L 12 80 Q 12 82 14 82 L 22 82 Q 24 82 24 80 L 28 44 Z"
             fill="currentColor"
             opacity="0.68"
         />
-        <!-- Right arm -->
         <path
             d="M 76 40 L 84 80 Q 84 82 82 82 L 74 82 Q 72 82 72 80 L 68 44 Z"
             fill="currentColor"
@@ -105,11 +106,15 @@
     </g>
 
     <!-- Desk surface band — covers the lower body so the character
-         reads as "sitting at a desk" -->
+         reads as "sitting at a desk" without drawing legs. -->
     <rect x="2" y="78" width="92" height="18" fill="currentColor" opacity="0.12" />
     <line x1="2" y1="78" x2="94" y2="78" stroke="#0b1220" stroke-width="0.8" opacity="0.22" />
 
-    <!-- Role prop on the desk -->
+    <!--
+        Role prop on the desk. Each role has a unique prop that gives
+        the workstation a distinct identity without text. Animation is
+        limited to the prop (D-05: body never animates).
+    -->
     {#if role === "product_manager"}
         <g>
             <rect x="20" y="80" width="48" height="14" rx="2" fill="#ffffff" stroke="currentColor" stroke-width="1.4" />
@@ -188,7 +193,7 @@
         <g>
             <g
                 class={isRunning ? "motion-safe:animate-[wrench-tap_1.6s_ease-in-out_infinite]" : ""}
-                transform-origin="40 86"
+                style="transform-origin: 40px 86px;"
             >
                 <circle cx="40" cy="86" r="6" fill="none" stroke="currentColor" stroke-width="1.8" />
                 <circle cx="40" cy="86" r="2" fill="currentColor" />
@@ -204,7 +209,7 @@
                     class="motion-safe:animate-[spark_1.6s_ease-in-out_infinite]"
                 />
             {/if}
-            {#if showOffDutyProp || !isRunning}
+            {#if isPaused || isInactive}
                 <g transform="translate(64 88)" opacity="0.75">
                     <circle cx="0" cy="0" r="5" fill="none" stroke="currentColor" stroke-width="1.2" />
                     <circle cx="0" cy="0" r="1.4" fill="currentColor" />
@@ -223,7 +228,8 @@
         </g>
     {/if}
 
-    <!-- Corner badges on the top-right of the desk zone -->
+    <!-- Corner badges on the top-right of the desk zone.
+         Each is a single small affordance, never animated (D-05). -->
 
     {#if isPaused}
         <g transform="translate(82 16)">
@@ -256,92 +262,44 @@
 </svg>
 
 <style>
-    /* D-05: body never animates; only the prop and the status ring.
-       All motion is consumed by motion-safe: class hooks, which
-       silently disable under prefers-reduced-motion: reduce. */
+    /* D-05: only the prop and the outer ring animate. All animation is
+       driven by `motion-safe:` Tailwind variants; this `@media` block
+       is the belt-and-braces guard for users whose browser reports
+       reduced motion but for some reason the variant didn't apply
+       (custom UA stylesheet, third-party extension, etc.). */
     @keyframes avatar-pulse {
-        0%, 100% {
-            transform: scale(1);
-            opacity: 0.9;
-        }
-        50% {
-            transform: scale(1.04);
-            opacity: 0.5;
-        }
+        0%, 100% { transform: scale(1);   opacity: 0.9; }
+        50%      { transform: scale(1.04); opacity: 0.5; }
     }
-
     @keyframes avatar-spin {
-        from {
-            transform: rotate(0deg);
-        }
-        to {
-            transform: rotate(360deg);
-        }
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
     }
-
     @keyframes cursor-blink {
-        0%, 49% {
-            opacity: 1;
-        }
-        50%, 100% {
-            opacity: 0;
-        }
+        0%, 49%  { opacity: 1; }
+        50%, 100% { opacity: 0; }
     }
-
     @keyframes stroke-draw {
-        from {
-            stroke-dasharray: 2 56;
-            stroke-dashoffset: 0;
-        }
-        to {
-            stroke-dasharray: 56 2;
-            stroke-dashoffset: -58;
-        }
+        from { stroke-dasharray: 2 56;  stroke-dashoffset: 0;    }
+        to   { stroke-dasharray: 56 2;  stroke-dashoffset: -58;  }
     }
-
     @keyframes pen-draw {
-        0% {
-            transform: rotate(-20deg);
-        }
-        50% {
-            transform: rotate(-12deg);
-        }
-        100% {
-            transform: rotate(-20deg);
-        }
+        0%   { transform: rotate(-20deg); }
+        50%  { transform: rotate(-12deg); }
+        100% { transform: rotate(-20deg); }
     }
-
     @keyframes magnifier-scan {
-        from {
-            transform: translateX(-2px);
-        }
-        to {
-            transform: translateX(2px);
-        }
+        from { transform: translateX(-2px); }
+        to   { transform: translateX(2px);  }
     }
-
     @keyframes wrench-tap {
-        0%, 100% {
-            transform: rotate(0deg);
-        }
-        50% {
-            transform: rotate(-10deg);
-        }
+        0%, 100% { transform: rotate(0deg);   }
+        50%      { transform: rotate(-10deg); }
     }
-
     @keyframes spark {
-        0%, 70% {
-            opacity: 0;
-            transform: scale(0.6);
-        }
-        80% {
-            opacity: 1;
-            transform: scale(1.2);
-        }
-        100% {
-            opacity: 0;
-            transform: scale(0.6);
-        }
+        0%, 70% { opacity: 0; transform: scale(0.6); }
+        80%     { opacity: 1; transform: scale(1.2); }
+        100%    { opacity: 0; transform: scale(0.6); }
     }
 
     .inactive {

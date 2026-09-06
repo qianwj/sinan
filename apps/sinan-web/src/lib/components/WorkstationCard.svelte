@@ -1,152 +1,120 @@
 <script lang="ts">
-    import type { ActorRole, ActorView, ActorState } from "sinan-core";
+    import type { ActorRole, ActorState, ActorView } from "sinan-core";
     import ActorStateBadge from "./ActorStateBadge.svelte";
     import CharacterAvatar from "./CharacterAvatar.svelte";
-    import { lookupTask } from "$lib/fixtures.js";
 
     /**
-     * One workstation = one actor (web-agent-office.md §5.1).
+     * One workstation = one actor projection
+     * (`web-agent-office.md` §5.1).
      *
      * Card anatomy (top → bottom):
-     *   - top status stripe (1px) — actor state color
-     *   - scene zone: desk surface + 64x64 SVG character with role prop
-     *     (web-agent-office.md §D-05). The avatar frame is the role
-     *     identity color; the prop "moves" in a state-appropriate way
-     *     (typing / drawing / scanning / tapping). The avatar itself
-     *     never animates.
-     *   - identity row: actor name + role label + state badge
-     *   - detail block: state-specific one-liner (per §6.3 "who did
-     *     what to what, and what is next"); status-tinted background
-     *   - meta grid: id, workspace, policy, last event
+     *   1. Top status stripe (1px)        — state color (§6.1)
+     *   2. Scene zone                     — role-colored halo + 96×96
+     *                                       D-05 character with role
+     *                                       prop (§5.3 + §D-05). The
+     *                                       halo carries the *identity*
+     *                                       color (role); the stripe
+     *                                       carries the *state* color
+     *                                       — they are independent
+     *                                       (§5.3 "身份色与状态色独立").
+     *   3. Identity row                   — name + role label + badge
+     *   4. Detail block                   — state-specific one-liner
+     *                                       (per §6.3 "who did what
+     *                                       to what, and what is next")
+     *   5. Meta grid                      — id, workspace, policy,
+     *                                       last event timestamp
+     *
+     * High-attention states (failed, quarantined) get a colored border
+     * in addition to the stripe + text. Color is never the only signal
+     * (§6.1).
      */
     let { view }: { view: ActorView } = $props();
 
     const roleLabel = $derived(roleLabelFor(view.config.role));
     const roleClass = $derived(roleClassFor(view.config.role));
-    const statusClass = $derived(statusClassFor(view.state));
-    const statusTint = $derived(statusTintFor(view.state));
-    const statusText = $derived(statusTextFor(view.state));
+    const stripeClass = $derived(stripeFor(view.state));
+    const tintClass = $derived(tintFor(view.state));
     const detail = $derived(detailFor(view));
-    const task = $derived(taskFor(view.state));
-    const isQuarantined = $derived(view.state.kind === "quarantined");
-    const isFailed = $derived(view.state.kind === "failed");
-    const isHighAttention = $derived(isQuarantined || isFailed);
+    const taskLine = $derived(taskLineFor(view));
     const relativeLastEvent = $derived(
         view.lastEventAt === null ? "never" : relativeTime(view.lastEventAt),
     );
 
+    const isQuarantined = $derived(view.state.kind === "quarantined");
+    const isFailed = $derived(view.state.kind === "failed");
+    const isHighAttention = $derived(isQuarantined || isFailed);
+
     function roleLabelFor(role: ActorRole): string {
         switch (role) {
-            case "product_manager":
-                return "Product";
-            case "designer":
-                return "Design";
-            case "development_engineer":
-                return "Engineer";
-            case "qa_engineer":
-                return "QA";
-            case "devops_engineer":
-                return "DevOps";
+            case "product_manager":         return "Product";
+            case "designer":                return "Design";
+            case "development_engineer":    return "Engineer";
+            case "qa_engineer":             return "QA";
+            case "devops_engineer":         return "DevOps";
         }
     }
 
     function roleClassFor(role: ActorRole): string {
         switch (role) {
-            case "product_manager":
-                return "bg-role-pm";
-            case "designer":
-                return "bg-role-designer";
-            case "development_engineer":
-                return "bg-role-developer";
-            case "qa_engineer":
-                return "bg-role-qa";
-            case "devops_engineer":
-                return "bg-role-devops";
+            case "product_manager":         return "bg-role-pm";
+            case "designer":                return "bg-role-designer";
+            case "development_engineer":    return "bg-role-developer";
+            case "qa_engineer":             return "bg-role-qa";
+            case "devops_engineer":         return "bg-role-devops";
         }
     }
 
-    function statusClassFor(state: ActorState): string {
+    function stripeFor(state: ActorState): string {
         switch (state.kind) {
-            case "ready":
-                return "bg-status-ready";
-            case "running":
-                return "bg-status-running";
-            case "paused":
-                return "bg-status-paused";
-            case "failed":
-                return "bg-status-failed";
-            case "restarting":
-                return "bg-status-restarting";
-            case "quarantined":
-                return "bg-status-quarantined";
-            case "terminated":
+            case "ready":        return "bg-status-ready";
+            case "running":      return "bg-status-running";
+            case "paused":       return "bg-status-paused";
+            case "failed":       return "bg-status-failed";
+            case "restarting":   return "bg-status-restarting";
+            case "quarantined":  return "bg-status-quarantined";
+            case "terminated":   return "bg-status-terminated";
             case "created":
-            case "initializing":
-                return "bg-status-terminated";
+            case "initializing": return "bg-status-running";
         }
     }
 
-    function statusTintFor(state: ActorState): string {
+    function tintFor(state: ActorState): string {
         switch (state.kind) {
-            case "ready":
-                return "bg-status-ready-tint";
-            case "running":
-                return "bg-status-running-tint";
-            case "paused":
-                return "bg-status-paused-tint";
-            case "failed":
-                return "bg-status-failed-tint";
-            case "restarting":
-                return "bg-status-restarting-tint";
-            case "quarantined":
-                return "bg-status-quarantined-tint";
-            case "terminated":
+            case "ready":        return "bg-status-ready-tint";
+            case "running":      return "bg-status-running-tint";
+            case "paused":       return "bg-status-paused-tint";
+            case "failed":       return "bg-status-failed-tint";
+            case "restarting":   return "bg-status-restarting-tint";
+            case "quarantined":  return "bg-status-quarantined-tint";
+            case "terminated":   return "bg-status-terminated-tint";
             case "created":
-            case "initializing":
-                return "bg-status-terminated-tint";
+            case "initializing": return "bg-status-running-tint";
         }
     }
 
-    function statusTextFor(state: ActorState): string {
-        switch (state.kind) {
-            case "ready":
-            case "created":
-            case "initializing":
-                return "at the desk";
-            case "running":
-                return "heads down";
-            case "paused":
-                return "stepped away";
-            case "failed":
-                return "needs a hand";
-            case "restarting":
-                return "coming back";
-            case "quarantined":
-                return "locked — needs review";
-            case "terminated":
-                return "archived";
-        }
-    }
-
+    /**
+     * Per §6.3, the detail line carries the causal chain: who did what
+     * to what, and what is next. We only have the actor + state in the
+     * prototype's wire shape, so the line collapses to "the state
+     * reason + the next step".
+     */
     function detailFor(view: ActorView): string {
-        const state = view.state;
-        switch (state.kind) {
-            case "running": {
-                const t = lookupTask(state.taskId);
-                return t?.title ?? `task ${state.taskId}`;
-            }
+        const s = view.state;
+        switch (s.kind) {
+            case "running":
+                return `holding a lease on task ${s.taskId}`;
             case "paused":
-                return state.reason;
+                return s.reason;
             case "failed":
-                return state.error.message;
+                return s.error.message;
             case "quarantined":
-                return state.reason;
+                return s.reason;
             case "restarting":
-                return state.fromCheckpoint === null
+                return s.fromCheckpoint === null
                     ? "restarting from scratch"
-                    : `restarting from ${state.fromCheckpoint}`;
+                    : `restarting from ${s.fromCheckpoint}`;
             case "terminated":
-                return state.clean ? "clean shutdown" : "unclean shutdown";
+                return s.clean ? "clean shutdown" : "unclean shutdown";
             case "ready":
             case "created":
             case "initializing":
@@ -154,13 +122,15 @@
         }
     }
 
-    function taskFor(state: ActorState): { id: string; requirement: string | null; title: string } | null {
-        if (state.kind !== "running") return null;
-        const summary = lookupTask(state.taskId);
+    /** "Current task = taskId + one-line goal" (§5.1). The one-line
+     *  goal comes from the task module, which is out of scope for the
+     *  prototype; we show the taskId and a placeholder line so the
+     *  slot is visibly reserved. */
+    function taskLineFor(view: ActorView): { id: string; goal: string } | null {
+        if (view.state.kind !== "running") return null;
         return {
-            id: state.taskId,
-            requirement: summary?.requirement ?? null,
-            title: summary?.title ?? `task ${state.taskId}`,
+            id: view.state.taskId,
+            goal: "one-line goal will arrive with the task module",
         };
     }
 
@@ -184,25 +154,18 @@
     class:border-status-failed={isFailed}
     class:border-divider={!isHighAttention}
     data-state={view.state.kind}
+    data-actor-id={view.id}
 >
-    <!-- Top status stripe (per §6.1) -->
-    <div class="h-1 w-full {statusClass}" aria-hidden="true"></div>
+    <!-- (1) Top status stripe — the state color, always visible. -->
+    <div class="h-1 w-full {stripeClass}" aria-hidden="true"></div>
 
-    <!--
-        Scene zone — the workstation "photo".
-        The avatar frame is the role identity color; the prop is drawn
-        inside the SVG. The desk surface is a subtle role-tinted
-        background so each workstation reads as a distinct spot in the
-        office (D-05 + §5.3).
-    -->
-    <div
-        class="relative flex items-center justify-center {statusTint} px-5 pb-4 pt-5"
-        data-scene="true"
-    >
-        <!-- Role-colored halo behind the character so each workstation
-             reads as a distinct spot in the office floor. -->
+    <!-- (2) Scene zone — role-tinted background + D-05 character.
+         The character color (currentColor) comes from a parent text
+         token the caller sets, so each role reads as a distinct spot
+         in the office floor (§5.3). -->
+    <div class="relative flex items-center justify-center {tintClass} px-5 pt-5 pb-4">
         <div
-            class="relative flex h-28 w-28 items-center justify-center rounded-full {roleClass} ring-4 ring-surface-1 shadow-[inset_0_-3px_0_rgba(15,23,42,0.12),0_2px_4px_rgba(15,23,42,0.08)]"
+            class="relative flex h-28 w-28 items-center justify-center rounded-full {roleClass} ring-4 ring-surface-1 shadow-[inset_0_-3px_0_rgba(15,23,42,0.12),0_2px_4px_rgba(15,23,42,0.08)] text-white"
             aria-hidden="true"
         >
             <CharacterAvatar
@@ -213,7 +176,7 @@
         </div>
     </div>
 
-    <!-- Identity row: name + role + state badge (no more overlap) -->
+    <!-- (3) Identity row. -->
     <div class="flex items-center gap-2 px-5 pt-3">
         <p class="truncate text-base font-semibold leading-tight text-fg">
             {view.config.name}
@@ -225,32 +188,28 @@
             <ActorStateBadge state={view.state} />
         </div>
     </div>
-    <p class="px-5 pt-0.5 text-xs text-fg-muted">
-        <span class:font-semibold={isHighAttention} class:text-status-failed={isFailed} class:text-status-quarantined={isQuarantined}>
-            {statusText}
-        </span>
-        {#if task}
-            <span class="text-fg-subtle"> · </span>
-            <span class="text-fg">{task.title}</span>
-        {/if}
-    </p>
 
-    <!-- Detail block: state-tinted, with state-specific one-liner -->
+    <!-- (4) Detail block — state-tinted, state-specific one-liner. -->
     <div class="px-5 pt-3 pb-2">
-        <p class="text-sm leading-relaxed text-fg">{detail}</p>
-        {#if task}
+        <p
+            class="text-sm leading-relaxed text-fg"
+            class:font-semibold={isHighAttention}
+            class:text-status-failed={isFailed}
+            class:text-status-quarantined={isQuarantined}
+        >
+            {detail}
+        </p>
+        {#if taskLine}
             <div class="mt-2 flex items-center gap-2 text-xs">
                 <span class="rounded-md border border-divider bg-canvas px-1.5 py-0.5 font-mono text-fg">
-                    task {task.id}
+                    {taskLine.id}
                 </span>
-                {#if task.requirement}
-                    <span class="font-mono text-fg-subtle">{task.requirement}</span>
-                {/if}
+                <span class="text-fg-subtle">{taskLine.goal}</span>
             </div>
         {/if}
     </div>
 
-    <!-- Meta grid -->
+    <!-- (5) Meta grid. -->
     <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-divider px-5 py-3 text-xs text-fg-muted">
         <dt class="font-mono uppercase tracking-wide text-fg-subtle">id</dt>
         <dd class="truncate font-mono text-fg">{view.id}</dd>

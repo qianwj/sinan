@@ -2,14 +2,13 @@ import adapter from "@sveltejs/adapter-static";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
 /**
- * SvelteKit configuration for the office SPA.
+ * SvelteKit config for the office SPA.
  *
- * - `adapter-static` produces a fully static `build/` directory. The
- *   `fallback: 'index.html'` line makes the SPA shell handle client-side
- *   routes — the production server (sinan-server) does not need a router
- *   for the web bundle.
- * - `vitePreprocess()` lets `.svelte` files import TypeScript and
- *   Tailwind utility classes without a separate Babel pass.
+ * `adapter-static` produces a fully static `build/` that `sinan-server`
+ * can serve at `/`. `fallback: 'index.html'` makes the SPA shell handle
+ * client-side routes so the server doesn't need a router for the web
+ * bundle. `strict: true` fails the build on missing link targets so we
+ * catch dead references at build time, not runtime.
  */
 export default {
     preprocess: vitePreprocess(),

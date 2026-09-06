@@ -1,4 +1,37 @@
-import type { ActorView, ActorConfig, RestartPolicy, ActorId, Timestamp } from "sinan-core";
+import type {
+    ActorId,
+    ActorView,
+    ActorConfig,
+    RestartPolicy,
+    TaskId,
+    Timestamp,
+} from "sinan-core";
+
+/**
+ * Mock task metadata used by the running actor card. The wire shape
+ * matches what `manager.get(id).state` carries today (`taskId`) plus
+ * the human-readable title the office surfaces per
+ * `web-agent-office.md` §5.1 ("current task = taskId + one-line goal").
+ * When the task module lands the office will fetch this from a real
+ * endpoint and the `taskTitles` lookup disappears.
+ */
+interface TaskSummary {
+    readonly title: string;
+    readonly requirement: string | null;
+}
+
+const taskTitles: Record<TaskId, TaskSummary> = {
+    "task-1": { title: "Implement auth middleware", requirement: "REQ-AUTH-02" },
+};
+
+/**
+ * Lookup a task by id. Returns `null` when the id is not in the mock
+ * catalog (e.g. the running actor references a task the demo does not
+ * know about). Components degrade gracefully to "id only".
+ */
+export function lookupTask(taskId: TaskId): TaskSummary | null {
+    return taskTitles[taskId] ?? null;
+}
 
 /**
  * Mock actor projections served by the Vite mock plugin at `/api/actors`.

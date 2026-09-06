@@ -46,6 +46,19 @@
   --color-status-quarantined: #7c3aed;
   --color-status-terminated: var(--color-palette-slate-500);
 
+  /*
+   * Identity colors (web-visual-language.md §4.1 + web-agent-office.md
+   * §5.3). These are the per-role border hues that the workstation
+   * card's left stripe is drawn from. They are independent of the
+   * status-* colors above — identity = who the actor is; status = what
+   * they are doing right now.
+   */
+  --color-role-pm: #3b82f6;
+  --color-role-designer: #ec4899;
+  --color-role-developer: #10b981;
+  --color-role-qa: #f59e0b;
+  --color-role-devops: #8b5cf6;
+
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;

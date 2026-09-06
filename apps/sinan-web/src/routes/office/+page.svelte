@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import type { ActorView } from "sinan-core";
     import AttentionBand from "$lib/components/AttentionBand.svelte";
-    import WorkstationCard from "$lib/components/WorkstationCard.svelte";
+    import WorkstationSections from "$lib/components/WorkstationSections.svelte";
 
     /**
      * Office page — the only page the demo ships. The data source is
@@ -37,13 +37,6 @@
 {:else}
     <AttentionBand {views} />
     <main class="mx-auto max-w-7xl px-6 py-8">
-        <section
-            class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-            aria-label="Workstations"
-        >
-            {#each views as view (view.id)}
-                <WorkstationCard {view} />
-            {/each}
-        </section>
+        <WorkstationSections {views} />
     </main>
 {/if}

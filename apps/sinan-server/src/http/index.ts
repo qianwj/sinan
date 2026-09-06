@@ -7,6 +7,7 @@ export { IdempotencyStore, type IdempotentResponse } from "./idempotency.js";
 export { readJsonBody } from "./json_body.js";
 export { Router, type RouteDefinition, type RouteHandler, type RouteParams } from "./router.js";
 export {
+    ActorCommandSchema,
     ActorRoleSchema,
     ActorStateKindSchema,
     CreateActorInputSchema,
@@ -14,6 +15,7 @@ export {
     ListEventsQuerySchema,
     ResourceLimitsSchema,
     RestartPolicySchema,
+    type ActorCommandBody,
     type CreateActorInputBody,
     type ListActorsQuery,
     type ListEventsQuery,

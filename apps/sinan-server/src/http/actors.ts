@@ -3,6 +3,7 @@ import { URL } from "node:url";
 import {
     DEFAULT_RESTART_POLICY,
     type Actor,
+    type ActorCommand,
     type ActorEvent,
     type ActorFilter,
     type ActorId,
@@ -19,6 +20,7 @@ import type { IdempotencyStore } from "./idempotency.js";
 import { readJsonBody } from "./json_body.js";
 import type { RouteDefinition, RouteParams } from "./router.js";
 import {
+    ActorCommandSchema,
     CreateActorInputSchema,
     ListActorsQuerySchema,
     ListEventsQuerySchema,
@@ -63,6 +65,7 @@ export class ActorRoutes<TAgent extends object = object> {
             { method: "GET", pattern: "/api/actors", handler: this.list.bind(this) },
             { method: "GET", pattern: "/api/actors/:id", handler: this.detail.bind(this) },
             { method: "GET", pattern: "/api/actors/:id/events", handler: this.events.bind(this) },
+            { method: "POST", pattern: "/api/actors/:id/commands", handler: this.sendCommand.bind(this) },
         ];
     }
 
@@ -143,6 +146,28 @@ export class ActorRoutes<TAgent extends object = object> {
         const events = this.manager.eventsOf(id, query.since, query.limit);
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({ events }));
+    }
+
+    /**
+     * `POST /api/actors/:id/commands` — send a command to one actor. The
+     * command body is validated by `ActorCommandSchema`; the manager then
+     * validates the state transition and throws `ManagerError` for
+     * `actor-not-found` / `invalid-state-transition` / `not-implemented`,
+     * each of which the error mapper translates to a 4xx / 5xx status.
+     */
+    private async sendCommand(req: IncomingMessage, res: ServerResponse, params: RouteParams): Promise<void> {
+        const id = requireIdParam(params);
+        const body = await readJsonBody(req);
+        const parsed = ActorCommandSchema.safeParse(body);
+        if (!parsed.success) {
+            throw new HttpError(400, "invalid-input", "Command body validation failed", {
+                issues: parsed.error.issues,
+            });
+        }
+        const command = toActorCommand(id, parsed.data);
+        this.manager.send(id, command);
+        res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ accepted: command }));
     }
 }
 
@@ -231,6 +256,31 @@ function toActorFilter(query: ListActorsQuery): ActorFilter {
 }
 
 /** Reads and validates the list endpoint's query parameters. */
+/**
+ * Bridges the Zod-parsed command body to the domain `ActorCommand`. Each
+ * branch maps to a single domain command variant; the Zod discriminator
+ * has already constrained `kind` to the handled set.
+ */
+function toActorCommand(actorId: ActorId, body: { kind: ActorCommand["kind"] } & Record<string, unknown>): ActorCommand {
+    switch (body.kind) {
+        case "pause":
+            return { kind: "pause", reason: body["reason"] as string };
+        case "resume":
+            return { kind: "resume" };
+        case "restart":
+            return { kind: "restart", reason: body["reason"] as string };
+        case "quarantine":
+            return { kind: "quarantine", reason: body["reason"] as string };
+        case "terminate":
+            return { kind: "terminate", clean: body["clean"] as boolean };
+        case "init":
+        case "assign":
+        case "cancel":
+        case "checkpoint":
+            throw new HttpError(501, "not-implemented", `Command '${body.kind}' is not handled`);
+    }
+}
+
 function parseListQuery(req: IncomingMessage): ListActorsQuery {
     const raw = parseQueryString(req);
     const result = ListActorsQuerySchema.safeParse(raw);

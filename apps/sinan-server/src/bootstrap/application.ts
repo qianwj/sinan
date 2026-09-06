@@ -1,6 +1,7 @@
 import readline from "node:readline";
-import { ActorManager } from "../actors/manager.js";
+import { ActorManager, InMemoryEventPublisher } from "../actors/index.js";
 import { Database, Migrator } from "../persistence/database.js";
+import { ActorConfigRepository, ActorEventRepository } from "../persistence/actor.js";
 import {
     ActorRoutes,
     ErrorMapper,
@@ -18,17 +19,24 @@ export class Application {
     private readonly actorManager: ActorManager;
     private readonly httpServer: HttpServer;
     private readonly idempotency: IdempotencyStore;
+    private readonly publisher: InMemoryEventPublisher;
 
     constructor() {
         this.database = new Database();
-        this.actorManager = new ActorManager(this.database);
+        this.publisher = new InMemoryEventPublisher();
+        this.actorManager = new ActorManager(this.database, undefined, {
+            publisher: this.publisher,
+        });
         this.idempotency = new IdempotencyStore();
+
+        const configRepository = new ActorConfigRepository(this.database);
+        const eventRepository = new ActorEventRepository(this.database);
 
         const router = new Router(
             [
                 ...new ActorRoutes(this.actorManager, this.idempotency).routes,
                 ...new HealthRoutes(this.actorManager).routes,
-                ...new EventStreamHandler().routes,
+                ...new EventStreamHandler(this.publisher, configRepository, eventRepository).routes,
             ],
             new ErrorMapper(),
         );

@@ -1,4 +1,5 @@
 import type { ServerResponse } from "node:http";
+import { ManagerError } from "../actors/index.js";
 
 /**
  * Thrown by HTTP handlers to signal a domain-level error that maps cleanly
@@ -37,6 +38,16 @@ export class ErrorMapper {
             return;
         }
 
+        if (error instanceof ManagerError) {
+            const status = statusForManagerError(error.code);
+            await this.writeJson(res, status, {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+            });
+            return;
+        }
+
         if (error instanceof HttpError) {
             await this.writeJson(res, error.status, {
                 code: error.code,
@@ -62,5 +73,25 @@ export class ErrorMapper {
     ): Promise<void> {
         res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
         res.end(JSON.stringify(body));
+    }
+}
+
+/**
+ * Maps `actor-runtime.md` §9 error codes to HTTP status codes. The same
+ * code is used for the wire body, so clients can branch on the body
+ * independently of the status.
+ */
+function statusForManagerError(code: ManagerError["code"]): number {
+    switch (code) {
+        case "actor-not-found":
+            return 404;
+        case "invalid-state-transition":
+            return 409;
+        case "policy-violation":
+            return 422;
+        case "not-implemented":
+            return 501;
+        case "persistence-unavailable":
+            return 503;
     }
 }

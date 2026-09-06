@@ -2,27 +2,29 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { Optional } from "sinan-core";
+import {
+    DEFAULT_RESTART_POLICY,
+    Optional,
+    type ActorCommand,
+    type ActorError,
+    type ActorId,
+    type ActorRole,
+    type ActorState,
+    type EventCause,
+    type EventSequence,
+    type Timestamp,
+} from "sinan-core";
 import type { Database } from "../persistence/database.js";
 import type { EventPublisher, PublishedEvent } from "../events/event_publisher.js";
 import { type AgentSessionFactory, PiAgentSessionFactory, } from "./agent.js";
 import {
     Actor,
-    type ActorCommand,
     type ActorConfig,
-    type ActorError,
     type ActorEvent,
-    type ActorId,
-    type ActorRole,
-    type ActorState,
     type ActorView,
     type CreateActorInput,
-    DEFAULT_RESTART_POLICY,
-    type EventCause,
-    type EventSequence,
     type RecoveryReport,
     type ResourceLimits,
-    type Timestamp,
 } from "./actor.js";
 import { ActorConfigRepository, ActorEventRepository } from "../persistence/actor.js";
 import type { ActorFilter } from "./actor.js";
@@ -479,6 +481,11 @@ function computeTargetState(
         case "cancel":
         case "checkpoint":
             return null; // handled by the not-implemented branch in `send`
+        default: {
+            // Exhaustiveness: the union of `command.kind` is closed.
+            const _unreachable: never = command;
+            return _unreachable;
+        }
     }
 }
 

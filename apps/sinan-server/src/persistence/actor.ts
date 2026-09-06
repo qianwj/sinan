@@ -1,19 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { Optional } from "sinan-core";
-import type { Database, SqlNamedParameters } from "./database.js";
 import {
     DEFAULT_RESTART_POLICY,
-    type ActorConfig,
-    type ActorEvent,
+    Optional,
     type ActorId,
     type ActorState,
     type ActorStateKind,
-    type ActorSummary,
-    type ActorView,
     type EventCause,
     type EventSequence,
     type Timestamp,
+} from "sinan-core";
+import type {
+    ActorConfig,
+    ActorEvent,
+    ActorSummary,
+    ActorView,
 } from "../actors/index.js";
+import type { Database, SqlNamedParameters } from "./database.js";
 
 /**
  * Row shape of `actor_config` as returned by `SELECT *`. The `config_json`

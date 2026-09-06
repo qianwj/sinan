@@ -1,4 +1,5 @@
-import type { ActorEvent, ActorId, EventSequence } from "../actors/index.js";
+import type { ActorEvent } from "../actors/index.js";
+import type { ActorId, EventSequence } from "sinan-core";
 
 /**
  * An event plus the metadata needed to deliver it to subscribers without

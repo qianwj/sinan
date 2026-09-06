@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ActorId, EventSequence, Timestamp } from "../actors/index.js";
+import type { ActorId, EventSequence, Timestamp } from "sinan-core";
 import type { ActorConfigRepository, ActorEventRepository } from "../persistence/actor.js";
 import type { EventPublisher, PublishedEvent, Unsubscribe } from "../events/event_publisher.js";
 import type { RouteDefinition } from "./router.js";

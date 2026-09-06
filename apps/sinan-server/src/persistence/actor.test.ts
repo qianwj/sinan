@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type {
+    ActorId,
+    ActorState,
+    EventCause,
+    Timestamp,
+} from "sinan-core";
 import {
     ActorConfigRepository,
     ActorEventRepository,
 } from "./actor.js";
 import { Database } from "./database.js";
-import type {
-    ActorConfig,
-    ActorId,
-    ActorState,
-    EventCause,
-    Timestamp,
-} from "../actors/index.js";
+import type { ActorConfig } from "../actors/index.js";
 
 const ACTOR_SCHEMA = `
   CREATE TABLE actor_config (

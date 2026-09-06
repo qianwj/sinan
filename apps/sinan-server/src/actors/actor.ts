@@ -1,42 +1,18 @@
-import {
-    DEFAULT_RESTART_POLICY,
-    type ActorCommand,
-    type ActorError,
-    type ActorId,
-    type ActorRole,
-    type ActorState,
-    type ActorStateKind,
-    type CheckpointId,
-    type EventCause,
-    type EventSequence,
-    type LeaseId,
-    type ManagerErrorCode,
-    type OutputId,
-    type RestartPolicy,
-    type TaskId,
-    type Timestamp,
+import type {
+    ActorError,
+    ActorId,
+    ActorRole,
+    ActorState,
+    ActorStateKind,
+    CheckpointId,
+    EventCause,
+    EventSequence,
+    LeaseId,
+    OutputId,
+    RestartPolicy,
+    TaskId,
+    Timestamp,
 } from "sinan-core";
-
-// Re-export shared domain types so existing `from "../actors/actor.js"`
-// imports keep working after the move to sinan-core.
-export {
-    DEFAULT_RESTART_POLICY,
-    type ActorCommand,
-    type ActorError,
-    type ActorId,
-    type ActorRole,
-    type ActorState,
-    type ActorStateKind,
-    type CheckpointId,
-    type EventCause,
-    type EventSequence,
-    type LeaseId,
-    type ManagerErrorCode,
-    type OutputId,
-    type RestartPolicy,
-    type TaskId,
-    type Timestamp,
-};
 
 /**
  * Persisted event recorded against an actor. The shape mirrors

@@ -1,15 +1,16 @@
 import type {
+    ActorConfig,
     ActorError,
     ActorId,
     ActorRole,
     ActorState,
-    ActorStateKind,
     CheckpointId,
     EventCause,
     EventSequence,
     LeaseId,
     OutputId,
     RestartPolicy,
+    ResourceLimits,
     TaskId,
     Timestamp,
 } from "sinan-core";
@@ -44,36 +45,6 @@ export type ActorEvent =
   | { kind: "failed"; sequence: EventSequence; error: ActorError; at: Timestamp }
   | { kind: "terminated"; sequence: EventSequence; clean: boolean; at: Timestamp };
 
-/** Static actor configuration. It is stored as JSON and treated as immutable. */
-export interface ActorConfig {
-  id: ActorId;
-  name: string;
-  role: ActorRole;
-  workspace: string;
-  /** Absolute path to the Pi JSONL session owned by this actor. */
-  sessionFile: string;
-  tools: readonly string[];
-  promptTemplateRef: string;
-  limits: ResourceLimits;
-  /**
-   * Recovery policy persisted alongside the rest of the static config. Stored
-   * in `actor_config.config_json` alongside the other fields; the column does
-   * not need a schema change. `ActorConfigRepository.parseConfigRow` defaults
-   * this to `DEFAULT_RESTART_POLICY` for rows written before the field
-   * existed, so callers always see a concrete value.
-   */
-  policy: RestartPolicy;
-  createdAt: Timestamp;
-}
-
-/** Resource limits reserved for future supervisor enforcement. */
-export interface ResourceLimits {
-  maxWallClockMs: number;
-  maxConcurrentTasks: number;
-  maxMemoryMb: number | null;
-  maxTokensPerHour: number | null;
-}
-
 /** Input accepted by ActorManager.create. */
 export interface CreateActorInput {
   id?: string;
@@ -85,35 +56,6 @@ export interface CreateActorInput {
   limits?: Partial<ResourceLimits>;
   /** Optional recovery policy. Defaults to `DEFAULT_RESTART_POLICY` (never). */
   policy?: RestartPolicy;
-}
-
-/**
- * Read-only projection returned by `ActorManager.get` and `list`. Holds the
- * persisted config, the latest known state, and the timestamp of the most
- * recent event — enough to render an office workstation card without holding
- * a live agent reference.
- */
-export interface ActorView {
-  id: ActorId;
-  config: ActorConfig;
-  state: ActorState;
-  lastEventAt: Timestamp | null;
-}
-
-/** Compact view used by `ActorManager.list`. */
-export interface ActorSummary {
-  id: ActorId;
-  role: ActorRole;
-  stateKind: ActorStateKind;
-  lastEventAt: Timestamp | null;
-  workspace: string;
-}
-
-/** Optional predicate accepted by `ActorManager.list`. */
-export interface ActorFilter {
-  role?: ActorRole;
-  stateKind?: ActorStateKind;
-  workspace?: string;
 }
 
 /**

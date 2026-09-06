@@ -93,6 +93,70 @@ export type RestartPolicy =
 /** Safe default used when an actor is created without an explicit policy. */
 export const DEFAULT_RESTART_POLICY: RestartPolicy = { kind: "never" };
 
+/** Resource limits reserved for future supervisor enforcement. */
+export interface ResourceLimits {
+    maxWallClockMs: number;
+    maxConcurrentTasks: number;
+    maxMemoryMb: number | null;
+    maxTokensPerHour: number | null;
+}
+
+/** Static actor configuration. The server stores this as JSON in
+ *  `actor_config.config_json`; the web reads it as part of an
+ *  `ActorView`. */
+export interface ActorConfig {
+    id: ActorId;
+    name: string;
+    role: ActorRole;
+    workspace: string;
+    /** Absolute path to the Pi JSONL session owned by this actor. */
+    sessionFile: string;
+    tools: readonly string[];
+    promptTemplateRef: string;
+    limits: ResourceLimits;
+    /**
+     * Recovery policy persisted alongside the rest of the static config.
+     * The persistence layer's parse helper defaults missing values to
+     * `DEFAULT_RESTART_POLICY` for legacy rows, so this field is always
+     * populated when an `ActorConfig` reaches application code.
+     */
+    policy: RestartPolicy;
+    createdAt: Timestamp;
+}
+
+/**
+ * Read-only projection returned by `ActorManager.get` and `list`. Holds
+ * the persisted config, the latest known state, and the timestamp of the
+ * most recent event — enough to render an office workstation card without
+ * holding a live agent reference. The web consumes this shape directly
+ * from the wire; the server constructs it from the actor_config and
+ * actor_event tables.
+ */
+export interface ActorView {
+    id: ActorId;
+    config: ActorConfig;
+    state: ActorState;
+    lastEventAt: Timestamp | null;
+}
+
+/** Compact view used by `ActorManager.list`. The web treats it as a
+ *  flattened subset of `ActorView` for narrow surfaces (tooltips, search
+ *  results) but the office currently renders full views everywhere. */
+export interface ActorSummary {
+    id: ActorId;
+    role: ActorRole;
+    stateKind: ActorStateKind;
+    lastEventAt: Timestamp | null;
+    workspace: string;
+}
+
+/** Optional predicate accepted by `ActorManager.list`. */
+export interface ActorFilter {
+    role?: ActorRole;
+    stateKind?: ActorStateKind;
+    workspace?: string;
+}
+
 /**
  * External commands accepted by the manager. Mirrors
  * `actor-runtime.md` §5.1; only the commands the current runtime

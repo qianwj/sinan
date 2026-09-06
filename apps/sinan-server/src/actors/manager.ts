@@ -6,28 +6,23 @@ import {
     DEFAULT_RESTART_POLICY,
     Optional,
     type ActorCommand,
+    type ActorConfig,
     type ActorError,
+    type ActorFilter,
     type ActorId,
     type ActorRole,
     type ActorState,
+    type ActorView,
     type EventCause,
     type EventSequence,
+    type ResourceLimits,
     type Timestamp,
 } from "sinan-core";
 import type { Database } from "../persistence/database.js";
 import type { EventPublisher, PublishedEvent } from "../events/event_publisher.js";
 import { type AgentSessionFactory, PiAgentSessionFactory, } from "./agent.js";
-import {
-    Actor,
-    type ActorConfig,
-    type ActorEvent,
-    type ActorView,
-    type CreateActorInput,
-    type RecoveryReport,
-    type ResourceLimits,
-} from "./actor.js";
+import { Actor, type ActorEvent, type CreateActorInput, type RecoveryReport } from "./actor.js";
 import { ActorConfigRepository, ActorEventRepository } from "../persistence/actor.js";
-import type { ActorFilter } from "./actor.js";
 import { ManagerError } from "./manager_error.js";
 
 const ACTOR_ROLES: readonly ActorRole[] = [

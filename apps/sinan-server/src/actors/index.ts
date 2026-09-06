@@ -1,16 +1,6 @@
 // Server-specific surface. Shared domain types live in `sinan-core` —
 // import them from there directly.
-export {
-    Actor,
-    type ActorConfig,
-    type ActorEvent,
-    type ActorFilter,
-    type ActorSummary,
-    type ActorView,
-    type CreateActorInput,
-    type RecoveryReport,
-    type ResourceLimits,
-} from "./actor.js";
+export { Actor, type ActorEvent, type CreateActorInput, type RecoveryReport } from "./actor.js";
 export {
     type AgentSessionFactory,
     type CreateAgentSessionOptions,

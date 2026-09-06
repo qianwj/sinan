@@ -2,19 +2,17 @@ import { randomUUID } from "node:crypto";
 import {
     DEFAULT_RESTART_POLICY,
     Optional,
+    type ActorConfig,
     type ActorId,
     type ActorState,
     type ActorStateKind,
+    type ActorSummary,
+    type ActorView,
     type EventCause,
     type EventSequence,
     type Timestamp,
 } from "sinan-core";
-import type {
-    ActorConfig,
-    ActorEvent,
-    ActorSummary,
-    ActorView,
-} from "../actors/index.js";
+import type { ActorEvent } from "../actors/index.js";
 import type { Database, SqlNamedParameters } from "./database.js";
 
 /**

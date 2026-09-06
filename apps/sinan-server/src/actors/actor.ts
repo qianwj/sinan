@@ -12,6 +12,15 @@ export type ActorId = string;
 /** Milliseconds since the Unix epoch. */
 export type Timestamp = number;
 
+/** Stable per-actor monotonic event counter (1-based, gap-free within an actor). */
+export type EventSequence = number;
+
+/** Identifier aliases. Treated as opaque strings; brand-flavored at the call site. */
+export type TaskId = string;
+export type CheckpointId = string;
+export type OutputId = string;
+export type LeaseId = string;
+
 /** Persisted lifecycle states understood by ActorManager. */
 export type ActorStateKind =
   | "created"
@@ -37,16 +46,55 @@ export interface ActorError {
   diagnostic: string | null;
 }
 
-/** Runtime state. Only the created, ready, and failed variants are used by create(). */
+/**
+ * Runtime state.
+ *
+ * - `initializing` is a transient, in-memory state held only by
+ *   `ActorManager.create` between issuing the create event and the agent
+ *   factory returning a session. It is never persisted to `actor_config.state_kind`
+ *   and never appears in HTTP/SSE responses.
+ * - All other variants are persisted via `state-changed` events and reflected
+ *   in `actor_config.state_kind` for query support.
+ */
 export type ActorState =
+  | { kind: "initializing" }
   | { kind: "created" }
   | { kind: "ready" }
-  | { kind: "running"; taskId: string; leaseId: string }
+  | { kind: "running"; taskId: TaskId; leaseId: LeaseId }
   | { kind: "paused"; reason: string; since: Timestamp }
   | { kind: "failed"; error: ActorError; since: Timestamp }
-  | { kind: "restarting"; fromCheckpoint: string | null }
+  | { kind: "restarting"; fromCheckpoint: CheckpointId | null }
   | { kind: "quarantined"; reason: string; since: Timestamp }
   | { kind: "terminated"; clean: boolean; at: Timestamp };
+
+/**
+ * Persisted event recorded against an actor. The shape mirrors
+ * `actor-runtime.md` §5.2. Only `state-changed` is emitted by the manager today;
+ * the remaining variants are reserved for forthcoming task / checkpoint modules.
+ */
+export type ActorEvent =
+  | {
+      kind: "state-changed";
+      sequence: EventSequence;
+      from: ActorState;
+      to: ActorState;
+      cause: EventCause;
+      at: Timestamp;
+    }
+  | { kind: "task-accepted"; sequence: EventSequence; taskId: TaskId; at: Timestamp }
+  | { kind: "progress"; sequence: EventSequence; at: Timestamp; phase: string; note: string | null }
+  | {
+      kind: "log";
+      sequence: EventSequence;
+      at: Timestamp;
+      stream: "stdout" | "stderr" | "system";
+      text: string;
+    }
+  | { kind: "checkpoint-created"; sequence: EventSequence; checkpointId: CheckpointId; at: Timestamp }
+  | { kind: "output-recorded"; sequence: EventSequence; outputId: OutputId; at: Timestamp }
+  | { kind: "lease-renewed"; sequence: EventSequence; leaseId: LeaseId; until: Timestamp }
+  | { kind: "failed"; sequence: EventSequence; error: ActorError; at: Timestamp }
+  | { kind: "terminated"; sequence: EventSequence; clean: boolean; at: Timestamp };
 
 /** Static actor configuration. It is stored as JSON and treated as immutable. */
 export interface ActorConfig {
@@ -79,6 +127,51 @@ export interface CreateActorInput {
   tools?: readonly string[];
   promptTemplateRef?: string;
   limits?: Partial<ResourceLimits>;
+}
+
+/**
+ * Read-only projection returned by `ActorManager.get` and `list`. Holds the
+ * persisted config, the latest known state, and the timestamp of the most
+ * recent event — enough to render an office workstation card without holding
+ * a live agent reference.
+ */
+export interface ActorView {
+  id: ActorId;
+  config: ActorConfig;
+  state: ActorState;
+  lastEventAt: Timestamp | null;
+}
+
+/** Compact view used by `ActorManager.list`. */
+export interface ActorSummary {
+  id: ActorId;
+  role: ActorRole;
+  stateKind: ActorStateKind;
+  lastEventAt: Timestamp | null;
+  workspace: string;
+}
+
+/** Optional predicate accepted by `ActorManager.list`. */
+export interface ActorFilter {
+  role?: ActorRole;
+  stateKind?: ActorStateKind;
+  workspace?: string;
+}
+
+/**
+ * Output of `ActorManager.reload`, per `actor-runtime.md` §8.5.
+ *
+ * - `resumed` — actors that were transitioned into `ready` during recovery
+ * - `quarantined` — actors that should not auto-resume (state, factory error, etc.)
+ * - `orphans` — events whose `actor_id` does not match any persisted config
+ * - `missingConfigs` — ids referenced by an external (e.g. blackboard) system
+ *   that have no `actor_config` row; reserved for a future blackboard module.
+ */
+export interface RecoveryReport {
+  readonly resumed: readonly ActorId[];
+  readonly quarantined: readonly { readonly id: ActorId; readonly reason: string }[];
+  readonly orphans: readonly ActorId[];
+  readonly missingConfigs: readonly ActorId[];
 }
 
 /**
